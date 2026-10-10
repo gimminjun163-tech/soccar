@@ -102,7 +102,10 @@ input[type=range]{padding:0;border:0;width:100%;min-height:28px;accent-color:var
 table{border-collapse:collapse;width:100%;min-width:420px}
 th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
 th{font-size:.78rem;color:var(--muted);font-weight:500}
+th,td{white-space:nowrap}
 th:nth-child(2),td:nth-child(2){text-align:left}
+table.race{min-width:300px}
+table.race th:nth-child(3),table.race td:nth-child(3){text-align:left}
 tr.mine td{font-weight:600;color:var(--turf)}
 .posgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
 .posgrid button{text-align:left;display:flex;flex-direction:column;line-height:1.3}
@@ -214,7 +217,7 @@ function newGame(name,pos,lg,club,ht,wt){
     inv:{dep:{v:0,p:0,ch:0},fund:{v:0,p:0,ch:0},vc:{v:0,p:0,ch:0}},
     teams:mkTeams(lg),sched:makeSched(LEAGUES[lg].t.length),
     ss:{apps:0,goals:0,assists:0,rat:0},car:{apps:0,goals:0,assists:0},results:[],news:[],phase:'week',last:null,end:null,wage:0};
-  g.wage=wage();
+  g.wage=wage();ensureRace();
   news(`${LEAGUES[lg].n} ${g.teams[club].n}에 입단했습니다. 주급 ${won(g.wage)}.`);
 }
 function news(t){g.news.unshift(`${g.season}시즌 ${g.week+1}주 · ${t}`);g.news.length=Math.min(g.news.length,14)}
@@ -228,6 +231,45 @@ const ROLE={start:'선발',bench:'교체 명단',out:'명단 제외'};
 const cost=k=>Math.round(12+Math.max(0,g.stats[k]-60)*1.5);
 const table=()=>g.teams.map((t,i)=>({i,...t,p:t.w+t.d+t.l,pts:t.w*3+t.d,gd:t.gf-t.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.i-b.i);
 const busy=()=>M&&!M.done;
+
+/* ---------- 득점왕 · 도움왕 경쟁 ---------- */
+const NAMES={
+ k:[['김','이','박','최','정','조','윤','장','임','한','오','서'],['민재','준호','성민','태윤','도현','지훈','현우','승우','재원','우진','건희','상혁']],
+ jpn:[['사토','스즈키','다나카','와타나베','이토','나카무라','고바야시','야마모토','마쓰다','오카다'],['켄타','다이치','유토','하루토','료','쇼타','가이토','소라']],
+ epl:[['해리슨','카터','우드','베넷','쿠퍼','헤이스','모건','리드','포스터','웰스'],['잭','올리','메이슨','루크','벤','딘','콜','리엄']],
+ esp:[['가르시아','로페스','산체스','페레스','토레스','나바로','카스트로','이글레시아스','몰리나','세라노'],['디에고','파블로','루이스','하비','이반','우고','마테오','알바로']],
+ por:[['실바','코스타','페레이라','멘드스','산투스','올리베이라','카르발류','마르틴스','고메스','히베이루'],['주앙','티아구','후벵','디오구','누누','브루누','곤살루','페드루']],
+ ger:[['뮐러','슈미트','베버','호프만','바그너','베커','피셔','크라머','볼프','노이만'],['루카스','요나스','펠릭스','막스','닐스','팀','얀','레온']],
+ ned:[['더용','판데이크','얀센','더브리스','바커르','피서르','스미트','메이어르','판다이크','봅'],['단','스테인','라르스','티스','바르트','옌스','루벤','사미']],
+ ita:[['로시','페라리','에스포지토','비앙키','로마노','리치','마리니','콘티','갈로','브루노'],['마르코','루카','마테오','안드레아','다비데','시모네','니콜로','페데리코']],
+ fra:[['마르탱','베르나르','뒤부아','모로','로랑','지라르','포르','르블랑','기요','앙리오'],['위고','뤼카','앙투안','테오','막심','쥘','아드리앙','바티스트']],
+ tur:[['일마즈','카야','데미르','첼리크','샤힌','아이든','외즈튀르크','코치','아르슬란','폴라트'],['메흐메트','에므레','부라크','케렘','오누르','칸','세르칸','우무트']],
+ ksa:[['알도사리','알샤흐라니','알감디','알오타이비','알카흐타니','알하르비','알말키','알주아이드'],['살렘','파하드','압둘라','나세르','칼리드','사우드','무함마드','야세르']]
+};
+function mkName(lg,used){const[a,b]=NAMES[lg]||NAMES.epl;for(let i=0;i<40;i++){const x=pick(a),y=pick(b),n=lg==='k'?x+y:lg==='jpn'?x+' '+y:y+' '+x;if(!used[n]){used[n]=1;return n}}return pick(b)+' '+pick(a)+' '+ri(2,9)}
+/* 팀마다 주포 1명과 플레이메이커 1명. p[t*2]=주포, p[t*2+1]=플레이메이커 */
+function distGoals(t,n,noAssist){const p=g.race.p,ace=p[t*2],pm=p[t*2+1];
+  for(let i=0;i<n;i++){const r=R(),free=!(i<(noAssist||0));
+    if(r<ace.sh){ace.g++;if(free&&R()<pm.as)pm.a++}
+    else if(r<ace.sh+.12){pm.g++;if(free&&R()<.15)ace.a++}
+    else if(free){if(R()<pm.as)pm.a++;else if(R()<.12)ace.a++}}}
+function ensureRace(){
+  g.hist=g.hist||[];
+  if(g.race&&g.race.season===g.season&&g.race.lg===g.league&&g.race.p.length===g.teams.length*2)return;
+  const used={},p=[];
+  g.teams.forEach((t,i)=>{p.push({n:mkName(g.league,used),t:i,g:0,a:0,sh:.26+R()*.2,as:.2});p.push({n:mkName(g.league,used),t:i,g:0,a:0,sh:0,as:.2+R()*.18})});
+  g.race={season:g.season,lg:g.league,p};
+  /* 이미 진행된 시즌이면 지금까지의 팀 득점을 선수들에게 나눠 준다 */
+  g.teams.forEach((t,i)=>distGoals(i,Math.max(0,t.gf-(i===g.club?g.ss.goals:0))));
+}
+function raceInfo(){
+  const all=g.race.p.map(x=>({n:x.n,team:g.teams[x.t].n,g:x.g,a:x.a})).concat([{n:g.name,team:g.teams[g.club].n,g:g.ss.goals,a:g.ss.assists,me:1}]);
+  const gList=[...all].sort((x,y)=>y.g-x.g||y.a-x.a||(y.me||0)-(x.me||0)),aList=[...all].sort((x,y)=>y.a-x.a||y.g-x.g||(y.me||0)-(x.me||0));
+  return{gList,aList,gRank:1+all.filter(x=>x.g>g.ss.goals).length,aRank:1+all.filter(x=>x.a>g.ss.assists).length}}
+function raceTable(list,key,unit,title,rank){const top=list.slice(0,10),me=list.find(x=>x.me),rows=top.includes(me)?top:top.concat([me]);
+  const rk=x=>1+list.filter(y=>y[key]>x[key]).length;
+  return `<div class="panel"><div class="row spread"><h2>${title}</h2><span>내 순위 <b>${rank}위</b></span></div><div class="tablewrap"><table class="race"><thead><tr><th>#</th><th>선수</th><th>팀</th><th>${unit}</th></tr></thead><tbody>
+  ${rows.map(x=>`<tr class="${x.me?'mine':''}"><td>${rk(x)}</td><td>${esc(x.n)}</td><td>${x.team}</td><td>${x[key]}</td></tr>`).join('')}</tbody></table></div></div>`}
 
 /* ---------- 훈련 ---------- */
 function train(id){
@@ -346,8 +388,11 @@ function applyRes(h,a,hg,ag){const H=g.teams[h],A=g.teams[a];H.gf+=hg;H.ga+=ag;A
   if(hg>ag){H.w++;A.l++}else if(hg<ag){A.w++;H.l++}else{H.d++;A.d++}}
 function finishMatch(){
   const m=M,t=g.teams;
+  ensureRace();
   applyRes(m.home?g.club:m.opp,m.home?m.opp:g.club,m.home?m.my:m.op,m.home?m.op:m.my);
-  for(const[h,a]of g.sched[g.week])if(h!==g.club&&a!==g.club){const d=t[h].str-t[a].str;applyRes(h,a,pois(cl(1.5+d*.06,.2,4)),pois(cl(1.35-d*.06,.2,4)))}
+  distGoals(m.opp,m.op);distGoals(g.club,Math.max(0,m.my-m.goals),m.assists);
+  for(let i=0;i<m.goals;i++){const r=R();if(r<.3)g.race.p[g.club*2+1].a++;else if(r<.4)g.race.p[g.club*2].a++}
+  for(const[h,a]of g.sched[g.week])if(h!==g.club&&a!==g.club){const d=t[h].str-t[a].str;const hg=pois(cl(1.5+d*.06,.2,4)),ag=pois(cl(1.35-d*.06,.2,4));applyRes(h,a,hg,ag);distGoals(h,hg);distGoals(a,ag)}
   const win=m.my>m.op,lose=m.my<m.op,played=m.played;
   let rating=null,exp,bonus=0,dt=0;
   if(played){
@@ -382,7 +427,12 @@ function nextWeek(){
     for(const k in LEAGUES)LEAGUES[k].t.forEach(([n,s],i)=>{if(!(k===g.league&&i===g.club)&&s>=o-3&&s<=o+5)c.push({l:k,i,n,s})});
     c.sort(()=>R()-.5);
     for(const x of c)if(!seen[x.l]&&offers.length<3){seen[x.l]=1;offers.push(x)}
-    g.end={rank,prize,offers,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'};
+    ensureRace();const rc=raceInfo(),mm=LEAGUES[g.league].m,avgR=g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-';let award=0;
+    if(rc.gRank===1&&g.ss.goals>0){award+=Math.round(500*mm);news(`${g.ss.goals}골로 리그 득점왕에 올랐습니다!`)}
+    if(rc.aRank===1&&g.ss.assists>0){award+=Math.round(300*mm);news(`${g.ss.assists}도움으로 리그 도움왕에 올랐습니다!`)}
+    g.money+=award;
+    g.hist.push({s:g.season,lg:LEAGUES[g.league].n,club:g.teams[g.club].n,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:avgR,rank,gRank:rc.gRank,aRank:rc.aRank});
+    g.end={rank,prize,offers,award,gRank:rc.gRank,aRank:rc.aRank,gTop:{n:rc.gList[0].n,v:rc.gList[0].g},aTop:{n:rc.aList[0].n,v:rc.aList[0].a},apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'};
     news(`시즌 종료. 리그 ${rank}위, 상금 ${won(prize)}.`);g.phase='end';ui.tab='home';
   }else g.phase='week';
   save();
@@ -393,7 +443,7 @@ function newSeason(x){
   if(of){if(of.l!==g.league){g.league=of.l;g.teams=mkTeams(of.l)}g.club=of.i;g.trust=40}
   g.season++;g.age++;g.week=0;g.ss={apps:0,goals:0,assists:0,rat:0};
   g.teams.forEach(t=>{t.w=t.d=t.l=t.gf=t.ga=0;t.str=cl(t.str+ri(-1,1),60,92)});
-  g.sched=makeSched(g.teams.length);g.wage=wage();g.end=null;g.phase='week';
+  g.sched=makeSched(g.teams.length);g.wage=wage();g.end=null;g.phase='week';ensureRace();
   news(`${g.season}시즌 개막. ${LEAGUES[g.league].n} ${g.teams[g.club].n} 소속, 새 주급 ${won(g.wage)}.`);save();
 }
 function changePos(p){if(p===g.pos||busy())return;g.pos=p;g.trust=cl(g.trust-10);ui.msg=`포지션을 ${POS[p].n}(으)로 바꿨습니다. 새 자리에 적응할 때까지 신임 -10.`}
@@ -432,6 +482,7 @@ function roleCard(){const r=roleInfo(),col=r.key==='start'?'good':r.key==='bench
 function vHome(){
   if(g.phase==='end'){const e=g.end;return `<div class="panel"><h2>${g.season}시즌 결산</h2>
    <p>리그 <b>${e.rank}위</b> · 상금 ${won(e.prize)} · ${e.apps}경기 ${e.goals}골 ${e.assists}도움 · 평균 평점 ${e.avg}</p>
+   ${e.gRank?`<p>득점 <b>${e.gRank}위</b> · 도움 <b>${e.aRank}위</b>${e.award?` · 개인상 상금 ${won(e.award)}`:''}</p><p class="small muted">득점왕 ${esc(e.gTop.n)} ${e.gTop.v}골 · 도움왕 ${esc(e.aTop.n)} ${e.aTop.v}도움</p>`:''}
    ${e.offers.length?`<p class="notice">이적 제안이 왔습니다. 옮기면 신임은 40에서 다시 시작하고 주급은 새 리그 기준으로 정해집니다.</p>${e.offers.map((o,i)=>`<div class="item"><div><b>${o.n}</b><p class="small muted">${LEAGUES[o.l].n} · 전력 ${o.s}</p></div><button data-act="season" data-arg="${i}">이적</button></div>`).join('')}`:''}
    <div class="row"><button class="primary" data-act="season" data-arg="">${g.teams[g.club].n}에 남아 새 시즌 시작</button></div></div>`}
   const f=fixture(),o=g.teams[f.opp];
@@ -440,6 +491,7 @@ function vHome(){
    <p class="small muted">남은 훈련 ${g.trainLeft}회 · 주급 ${won(g.wage)}</p>
    <div class="row">${g.phase==='week'&&!M?`<button data-act="tab" data-arg="train">훈련하러 가기</button><button class="primary" data-act="match">경기 시작</button>`:g.phase==='post'?`<button class="primary" data-act="next">다음 주로</button>`:`<button data-act="tab" data-arg="match">중계 보기</button>`}</div></div>
   <div class="panel"><h2>시즌 기록</h2><p>${g.ss.apps}경기 · ${g.ss.goals}골 · ${g.ss.assists}도움 · 평균 평점 ${g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'}</p>
+   ${(r=>`<p>리그 득점 <b>${r.gRank}위</b> · 도움 <b>${r.aRank}위</b> <button data-act="tab" data-arg="league">경쟁 보기</button></p>`)(raceInfo())}
    <p class="small muted">통산 ${g.car.apps}경기 ${g.car.goals}골 ${g.car.assists}도움</p>
    <h3>소식</h3>${g.news.slice(0,7).map(n=>`<p class="small">${esc(n)}</p>`).join('')}</div></div>
   <div class="panel">${ui.confirmReset?`<p>지금 커리어를 지우고 처음부터 시작할까요?</p><div class="row"><button data-act="resetYes">지우고 새로 시작</button><button data-act="resetNo">취소</button></div>`:`<div class="row spread"><span class="small muted">진행 상황은 이 브라우저에 자동 저장됩니다.</span><button data-act="reset">새 커리어</button></div>`}</div>`}
@@ -485,9 +537,13 @@ function vMoney(){const tot=Object.values(g.inv).reduce((s,o)=>s+o.v,0);
   ${Object.keys(INV).map(k=>{const o=g.inv[k],pl=o.v-o.p;return `<div class="item" style="flex-direction:column;align-items:stretch"><div><b>${INV[k].n}</b> <span class="small muted">${INV[k].d}</span>
    <p>보유 ${won(o.v)} ${o.p>0?`<span class="${pl>=0?'good':'bad'}">(${pl>=0?'+':''}${won(pl)})</span>`:''} ${o.ch?`<span class="small ${o.ch>=0?'good':'bad'}">지난주 ${(o.ch*100).toFixed(1)}%</span>`:''}</p></div>
    <div class="row"><button data-act="ib" data-arg="${k}:100">+100만</button><button data-act="ib" data-arg="${k}:500">+500만</button><button data-act="ib" data-arg="${k}:all">전액 투자</button><button data-act="is" data-arg="${k}:100">-100만</button><button data-act="is" data-arg="${k}:all">전액 회수</button></div></div>`}).join('')}</div></div>`}
-function vLeague(){
+function vLeague(){const rc=raceInfo(),live=g.phase==='end'?[]:[{s:g.season,lg:LEAGUES[g.league].n,club:g.teams[g.club].n,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-',rank:table().findIndex(x=>x.i===g.club)+1,gRank:rc.gRank,aRank:rc.aRank,live:1}],hs=g.hist.concat(live).reverse();
   return `<div class="panel"><h2>${LEAGUES[g.league].n} ${g.season}시즌 순위</h2><div class="tablewrap"><table><thead><tr><th>#</th><th>팀</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
   ${table().map((t,i)=>`<tr class="${t.i===g.club?'mine':''}"><td>${i+1}</td><td>${t.n}</td><td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td><td>${t.gd>0?'+':''}${t.gd}</td><td>${t.pts}</td></tr>`).join('')}</tbody></table></div></div>
+  <div class="cols">${raceTable(rc.gList,'g','골','득점왕 경쟁',rc.gRank)}${raceTable(rc.aList,'a','도움','도움왕 경쟁',rc.aRank)}</div>
+  <div class="panel"><h2>시즌별 내 기록</h2><div class="tablewrap"><table><thead><tr><th>시즌</th><th>팀</th><th>경기</th><th>골</th><th>도움</th><th>평점</th><th>팀 순위</th><th>득점</th><th>도움</th></tr></thead><tbody>
+  ${hs.map(h=>`<tr class="${h.live?'mine':''}"><td>${h.s}${h.live?' 진행 중':''}</td><td>${h.club}<br><span class="small muted">${h.lg}</span></td><td>${h.apps}</td><td>${h.goals}</td><td>${h.assists}</td><td>${h.avg}</td><td>${h.rank}위</td><td>${h.gRank}위</td><td>${h.aRank}위</td></tr>`).join('')}</tbody></table></div>
+  <p class="small muted">통산 ${g.car.apps}경기 ${g.car.goals}골 ${g.car.assists}도움. 득점왕은 리그 배율에 따라 500만원부터, 도움왕은 300만원부터 상금을 받습니다.</p></div>
   <div class="panel"><h2>내 경기 기록</h2>${g.results.length?`<div class="tablewrap"><table><thead><tr><th>주</th><th>상대</th><th>결과</th><th>평점</th><th>기록</th></tr></thead><tbody>${g.results.map(r=>`<tr><td>${r.s}-${r.w}</td><td>${r.home?'홈':'원정'} ${r.opp}</td><td>${r.sc} ${r.r}</td><td>${r.rating?r.rating.toFixed(1):'-'}</td><td>${r.rating?r.ga:'-'}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">아직 치른 경기가 없습니다.</p>'}</div>`}
 function render(){
   const app=document.getElementById('app');
@@ -526,7 +582,7 @@ document.addEventListener('input',e=>{const id=e.target.id;if(g||(id!=='ht'&&id!
   document.getElementById('htv').textContent=h;document.getElementById('wtv').textContent=w;document.getElementById('bodytx').textContent=bodyText(h,w)});
 document.addEventListener('change',e=>{if(g||!['lgsel','clubsel','ht','wt'].includes(e.target.id))return;
   const prev=ui.setupLeague;readSetup();if(ui.setupLeague!==prev)ui.setupClub=weakest(ui.setupLeague);render()});
-function start(d){g=(d&&d.g&&d.g.v===2?d.g:null)||load();if(g&&g.phase==='post'){/* 중계 화면은 저장되지 않으므로 정산만 이어감 */ui.tab='home'}render()}
+function start(d){g=(d&&d.g&&d.g.v===2?d.g:null)||load();if(g)ensureRace();if(g&&g.phase==='post'){/* 중계 화면은 저장되지 않으므로 정산만 이어감 */ui.tab='home'}render()}
 window.claude?.hot?.snapshot?.(()=>({g}));
 window.claude?.hot?.ready?window.claude.hot.ready(start):start(window.claude?.hot?.data??{});
 </script>
