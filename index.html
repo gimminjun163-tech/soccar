@@ -231,7 +231,7 @@ function makeSched(n){
 }
 function newGame(name,pos,lg,club,ht,wt,y0,nat){
   const z={};STATS.forEach(([k])=>z[k]=0);
-  g={v:2,name,pos,league:lg,club,ht,wt,y0:y0||2025,nat:nat==null?0:nat,nt:{caps:0,goals:0,assists:0,titles:[]},age:18,season:1,week:0,money:500,cond:85,trust:40,stats:makeStats(pos),gauge:z,exp:0,
+  g={v:2,name,pos,league:lg,club,ht,wt,rep:5,offers:[],y0:y0||2025,nat:nat==null?0:nat,nt:{caps:0,goals:0,assists:0,titles:[]},age:18,season:1,week:0,money:500,cond:85,trust:40,stats:makeStats(pos),gauge:z,exp:0,
     tend:{style:50,bold:50,pro:50,calm:50},trainLeft:2,trained:0,bought:{},perks:{},
     inv:{dep:{v:0,p:0,ch:0},fund:{v:0,p:0,ch:0},vc:{v:0,p:0,ch:0}},
     teams:mkTeams(lg),sched:makeSched(LEAGUES[lg].t.length),
@@ -251,6 +251,53 @@ const ROLE={start:'선발',bench:'교체 명단',out:'명단 제외'};
 const cost=k=>Math.round(5+Math.max(0,g.stats[k]-60)*.6);
 const table=()=>g.teams.map((t,i)=>({i,...t,p:t.w+t.d+t.l,pts:t.w*3+t.d,gd:t.gf-t.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.i-b.i);
 const busy=()=>M&&!M.done;
+
+/* ---------- 이적 시장 ---------- */
+const WINTER=[19,20,21,22];
+const isWinter=()=>g.phase!=='end'&&WINTER.includes(g.week)&&g.week<W();
+const marketOpen=()=>g.phase==='end'||isWinter();
+const addRep=v=>{g.rep=Math.round(cl((g.rep||0)+v)*10)/10};
+/* 명성이 높을수록 제안이 많아지고 더 강한 구단까지 손을 뻗는다 */
+function genOffers(kind,force){const o=ovr(),cur=g.teams[g.club].str,r=g.rep||0,lo=o-4,hi=o+2+Math.floor(r/20),c=[];
+  let n=kind==='summer'?1+Math.floor(r/22)+(o>=cur+3?1:0):Math.floor(r/30)+(o>=cur+3?1:0);n=cl(n,kind==='summer'?1:0,6);if(force)n=force;
+  for(const k in LEAGUES){const Wn=LEAGUES[k].t.length*2-2;if(kind==='winter'&&k!==g.league&&g.week>=Wn-2)continue;
+    LEAGUES[k].t.forEach(([nm,st],i)=>{if(k===g.league&&i===g.club)return;const sv=k===g.league?g.teams[i].str:st;
+      if(sv>=lo&&sv<=hi&&!(g.offers||[]).some(x=>x.l===k&&x.i===i))c.push({l:k,i,n:nm,s:sv,key:sv*r/150+R()*8})})}
+  c.sort((a,b)=>b.key-a.key);const out=[],seen={};
+  for(const x of c)if((seen[x.l]||0)<2&&out.length<n){seen[x.l]=(seen[x.l]||0)+1;delete x.key;
+    x.wage=Math.round(wageFor(o)*LEAGUES[x.l].m*(1+r/200)/10)*10;x.bonus=Math.round(x.wage*4*(1+r/100)/10)*10;out.push(x)}
+  return out}
+function xfer(i){const of=g.offers[i];if(!of||busy()||!isWinter()||g.phase!=='week')return;const from=g.teams[g.club].n;
+  if(of.l!==g.league){const rc=raceInfo();
+    g.hist.push({s:g.season,lg:LEAGUES[g.league].n,club:from,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-',rank:table().findIndex(x=>x.i===g.club)+1,gRank:rc.gRank,aRank:rc.aRank});
+    g.ss={apps:0,goals:0,assists:0,rat:0};g.league=of.l;g.teams=mkTeams(of.l);g.sched=makeSched(g.teams.length);
+    /* 새 리그의 지금까지 일정을 채워 넣는다 */
+    for(let w=0;w<g.week;w++)for(const[h,a]of g.sched[w]){const d=g.teams[h].str-g.teams[a].str;applyRes(h,a,pois(cl(1.5+d*.06,.2,4)),pois(cl(1.35-d*.06,.2,4)))}
+    g.club=of.i;g.race=null;ensureRace()}
+  else g.club=of.i;
+  g.trust=40;g.wage=of.wage;g.money+=of.bonus;g.offers=[];
+  news(`${from}을 떠나 ${LEAGUES[g.league].n} ${of.n}로 이적했습니다. 주급 ${won(of.wage)}, 계약금 ${won(of.bonus)}.`);
+  ui.msg=`${of.n} 이적 완료. 신임은 40에서 다시 시작합니다.`}
+function agent(){if(busy()||!marketOpen()||g.agentUsed)return;if(g.money<200){ui.msg='자금이 부족합니다.';return}
+  g.money-=200;g.agentUsed=true;const x=genOffers(g.phase==='end'?'summer':'winter',2);g.offers.push(...x);
+  ui.msg=x.length?`에이전트가 제안 ${x.length}건을 가져왔습니다.`:'에이전트가 뛰었지만 관심을 보이는 구단이 없었습니다.'}
+function offerList(act){const can=act==='season'||g.phase==='week';
+  return g.offers.length?g.offers.map((o,i)=>{const sc=40+(ovr()-(o.s+1))*4,rk=sc>=55?'선발':sc>=30?'교체 명단':'명단 제외';
+    return `<div class="item"><div><b>${o.n}</b><p class="small muted">${LEAGUES[o.l].n} · 전력 ${o.s} · 주급 ${won(o.wage||0)} · 계약금 ${won(o.bonus||0)} · 입단 직후 예상: ${rk}</p></div><button data-act="${act}" data-arg="${i}" ${can?'':'disabled'}>계약</button></div>`}).join(''):'<p class="muted">들어온 제안이 없습니다.</p>'}
+function vMarket(){const r=g.rep||0,d=dateOf(g.season,WINTER[0]),open=marketOpen();
+  return `<div class="cols"><div class="panel"><div class="row spread"><h2>이적 시장</h2><span class="tag ${open?'good':''}">${g.phase==='end'?'여름 시장 열림':isWinter()?'겨울 시장 열림':'닫힘'}</span></div>
+  <p class="small muted">${g.phase==='end'?'새 시즌을 시작하기 전까지 계약할 수 있습니다.':isWinter()?'1월 한 달 동안 열립니다. 이번 주 리그 경기 전에만 계약할 수 있고, 옮기면 바로 새 팀 소속으로 뜁니다.':`다음 시장: ${g.week<WINTER[0]&&WINTER[0]<W()?`겨울 ${d.getUTCMonth()+1}월 ${d.getUTCDate()}일 주부터 4주`:'시즌 종료 뒤 여름 시장'}.`}</p>
+  ${open?offerList(g.phase==='end'?'season':'xfer'):''}
+  ${open?`<div class="row"><button data-act="agent" ${g.agentUsed?'disabled':''}>${g.agentUsed?'에이전트 의뢰 완료':'에이전트에게 팀 알아보기 · 200만원'}</button><span class="small muted">시장마다 한 번, 제안을 최대 2건 더 받습니다.</span></div>`:''}
+  ${g.phase==='end'?`<div class="row"><button class="primary" data-act="season" data-arg="">${g.teams[g.club].n}에 남아 새 시즌 시작</button></div>`:''}</div>
+  <div class="panel"><div class="row spread"><h2>명성</h2><span><b>${Math.round(r)}</b> / 100</span></div><div class="bar"><i style="width:${r}%"></i></div>
+  <p class="small muted">명성이 높을수록 제안이 많이 오고, 더 강한 구단과 더 높은 주급·계약금이 붙습니다. 지금은 전력 ${ovr()-4}~${ovr()+2+Math.floor(r/20)} 구단이 관심을 보입니다.</p>
+  <h3>명성이 오르는 일</h3>
+  <p class="small">경기 평점 6.5 이상, 골과 도움 (A매치는 더 크게)</p>
+  <p class="small">소속팀 리그 우승 +15, 3위 이내 +8, 상위 절반 +3</p>
+  <p class="small">득점왕 +10, 도움왕 +6</p>
+  <p class="small">국가대표 대회: 월드컵 우승 +30, 그 외 우승 +20, 결승 +15, 4강 +10, 8강 +5</p>
+  <p class="small muted">OVR이 소속팀 전력보다 3 이상 높으면 제안이 1건 더 옵니다. 명성은 시즌이 바뀔 때 20% 줄어듭니다.</p></div></div>`}
 
 /* ---------- 국가대표 ---------- */
 const NATIONS=[['대한민국',78,'AFC'],['일본',80,'AFC'],['이란',77,'AFC'],['호주',75,'AFC'],['우즈베키스탄',73,'AFC'],['사우디아라비아',73,'AFC'],['카타르',72,'AFC'],['이라크',70,'AFC'],['요르단',70,'AFC'],['아랍에미리트',70,'AFC'],
@@ -281,7 +328,11 @@ function tourRole(ev){if(g.nat==null)return'out';const n=NATIONS[g.nat];
   if(ev.ag)return g.age<=23?nRole(n.s-8):(ovr()>=n.s?'start':'out');
   return nRole()}
 const canFriendly=()=>g.phase==='post'&&!!g.fr&&!g.intlPlayed&&!busy();
-function rollWeek(){g.fr=null;if(g.nat==null)return;const nat=NATIONS[g.nat];
+function rollWeek(){g.fr=null;g.offers=g.offers||[];
+  if(g.week===WINTER[0]&&g.week<W()){g.offers=genOffers('winter');g.agentUsed=false;news(`겨울 이적 시장이 열렸습니다.${g.offers.length?` 제안 ${g.offers.length}건이 들어왔습니다.`:''}`)}
+  else if(isWinter()){if(R()<.15+(g.rep||0)/200){const x=genOffers('winter',1);if(x.length){g.offers.push(...x);news(`${x[0].n}에서 이적 제안이 왔습니다.`)}}}
+  else if(g.offers.length)g.offers=[];
+  if(g.nat==null)return;const nat=NATIONS[g.nat];
   const ev0=midEvents().find(e=>e.week===g.week),ntBusy=away()||(ev0&&tourRole(ev0)!=='out'),inWin=WINDOWS.includes(g.week);
   if(!ntBusy&&nRole()!=='out'&&R()<(inWin?FR_P:FR_OUT)){const o=pick(NATIONS.filter((x,i)=>i!==g.nat&&Math.abs(x.s-nat.s)<=9));g.fr={n:o.n,str:o.s,out:!inWin};
     news(`[친선] 대표팀 소집. ${inWin?'A매치 기간':'A매치 기간은 아니지만'} 이번 주 리그 경기 뒤 ${o.n}와 친선전이 잡혔습니다.`)}
@@ -307,8 +358,8 @@ function tourAdvance(t,my,op){const st=t.stages[t.idx],o=t.next,win=my>op,lose=m
   else if(lose){adv=false;extra=`${st}에서 탈락했습니다.`}
   else if(!win){adv=R()<cl(.5+(t.ts-o.str)*.01,.25,.75);res+=adv?' (승부차기 승)':' (승부차기 패)';extra=adv?'승부차기 끝에 다음 라운드로 갑니다!':`승부차기 끝에 ${st}에서 탈락했습니다.`}
   t.log.push(`${(t.dates||[])[t.idx]||''} ${st} · ${o.n} ${res}`.trim());t.idx++;
-  if(!adv){t.done=true;t.result=extra}
-  else if(t.idx>=t.stages.length){t.done=true;t.champ=true;const pz=t.wc?5000:t.ag?1500:2000,ttl=t.name+(t.ag?' 금메달':' 우승');g.money+=pz;g.nt.titles.push(ttl);extra=`${ttl}! 포상금 ${won(pz)}.`;t.result=extra;news(`[컵 대회] ${NATIONS[g.nat].n}, ${ttl}!`)}
+  if(!adv){t.done=true;t.result=extra;const b=st==='결승'?15:st==='4강'?10:st==='8강'?5:0;addRep(b);if(b>=10&&g.phase==='end')g.offers.push(...genOffers('summer',1))}
+  else if(t.idx>=t.stages.length){t.done=true;t.champ=true;const pz=t.wc?5000:t.ag?1500:2000,ttl=t.name+(t.ag?' 금메달':' 우승');g.money+=pz;g.nt.titles.push(ttl);addRep(t.wc?30:20);if(g.phase==='end')g.offers.push(...genOffers('summer',2));extra=`${ttl}! 포상금 ${won(pz)}.`;t.result=extra;news(`[컵 대회] ${NATIONS[g.nat].n}, ${ttl}!`)}
   else t.next=tourOpp(t);
   return extra}
 /* 이번 주에 열렸는데 직접 뛰지 않은 경기는 나 없이 진행 */
@@ -330,7 +381,7 @@ function finishIntl(){
   const m=M,win=m.my>m.op,lose=m.my<m.op,played=m.played,cup=m.intl.kind==='tour';let rating=null,exp=5,bonus=0,extra='';
   if(played){m.rating+=win?.2:lose?-.2:0;rating=Math.round(cl(m.rating,3,10)*10)/10;
     exp=Math.round((played*.35+Math.max(0,rating-6)*18+m.goals*15+m.assists*10+(win?8:0))*1.2);bonus=50+m.goals*30+m.assists*20;
-    g.nt.caps++;g.nt.goals+=m.goals;g.nt.assists+=m.assists;g.cond=cl(g.cond-Math.round(played*.15))}
+    g.nt.caps++;g.nt.goals+=m.goals;g.nt.assists+=m.assists;addRep((rating-6.5)*.5+m.goals*.4+m.assists*.25);g.cond=cl(g.cond-Math.round(played*.15))}
   if(cup){extra=tourAdvance(g.tour,m.my,m.op);g.cond=cl(g.cond+20)}else g.intlPlayed=true;
   g.exp+=exp;g.money+=bonus;
   g.last={my:m.my,op:m.op,rating,exp,bonus,dt:0,played,goals:m.goals,assists:m.assists,shots:m.shots,keyp:m.keyp,drib:m.drib,tack:m.tack,intl:m.intl.label,extra};
@@ -389,7 +440,8 @@ function ensureRace(){
       g.stats[k]=Math.round(b>0?a/b:c/d);g.gauge[k]=0});
     const top=STATS.filter(([k])=>!OLDK.includes(k)).sort((x,y)=>POS[g.pos].w[STATS.findIndex(z=>z[0]===y[0])]-POS[g.pos].w[STATS.findIndex(z=>z[0]===x[0])])[0][0];
     let n=0;while(ovr()<old&&g.stats[top]<99&&n++<40)g.stats[top]++;while(ovr()>old&&n++<80)g.stats[top]--}
-  g.hist=g.hist||[];g.y0=g.y0||2025;g.nt=g.nt||{caps:0,goals:0,assists:0,titles:[]};
+  g.hist=g.hist||[];g.y0=g.y0||2025;g.nt=g.nt||{caps:0,goals:0,assists:0,titles:[]};g.offers=g.offers||(g.end&&g.end.offers)||[];
+  if(g.rep==null)g.rep=cl(Math.round(12+(g.ss.apps?(g.ss.rat/g.ss.apps-6.5)*20:0)+g.nt.titles.length*15+Math.min(15,g.car.goals/4)),0,60);
   if(g.race&&g.race.season===g.season&&g.race.lg===g.league&&g.race.p.length===g.teams.length*2)return;
   const used={},p=[];
   g.teams.forEach((t,i)=>{p.push({n:mkName(g.league,used),t:i,g:0,a:0,sh:.26+R()*.2,as:.2});p.push({n:mkName(g.league,used),t:i,g:0,a:0,sh:0,as:.2+R()*.18})});
@@ -538,7 +590,7 @@ function finishMatch(){
     bonus=m.goals*30+m.assists*20+(win?50:0);
     dt=Math.round((rating-6.3)*5)+(win?1:0);if(dt<0&&played<30)dt=Math.ceil(dt/2);
     g.ss.apps++;g.ss.goals+=m.goals;g.ss.assists+=m.assists;g.ss.rat+=rating;
-    g.car.apps++;g.car.goals+=m.goals;g.car.assists+=m.assists;
+    g.car.apps++;g.car.goals+=m.goals;g.car.assists+=m.assists;addRep((rating-6.5)*.3+m.goals*.25+m.assists*.15);
     g.cond=cl(g.cond-Math.round(played*.22*(1.3-g.stats.sta/233)));
   }else exp=m.role==='out'?8:12;
   g.exp+=exp;g.money+=bonus;g.trust=cl(g.trust+dt);
@@ -561,28 +613,27 @@ function nextWeek(){
   g.fr=null;g.intlPlayed=false;g.trainLeft=2;g.trained=0;g.bought={};g.last=null;M=null;ui.train=null;g.week++;
   if(g.week>=W()){
     g.week=W()-1;const nT=g.teams.length,rank=table().findIndex(x=>x.i===g.club)+1,prize=Math.round((nT+1-rank)*100*LEAGUES[g.league].m);g.money+=prize;
-    const o=ovr(),offers=[],c=[],seen={};
-    for(const k in LEAGUES)LEAGUES[k].t.forEach(([n,s],i)=>{if(!(k===g.league&&i===g.club)&&s>=o-3&&s<=o+5)c.push({l:k,i,n,s})});
-    c.sort(()=>R()-.5);
-    for(const x of c)if(!seen[x.l]&&offers.length<3){seen[x.l]=1;offers.push(x)}
+    let offers=[];
     ensureRace();const rc=raceInfo(),mm=LEAGUES[g.league].m,avgR=g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-';let award=0;
     if(rc.gRank===1&&g.ss.goals>0){award+=Math.round(500*mm);news(`${g.ss.goals}골로 리그 득점왕에 올랐습니다!`)}
     if(rc.aRank===1&&g.ss.assists>0){award+=Math.round(300*mm);news(`${g.ss.assists}도움으로 리그 도움왕에 올랐습니다!`)}
     g.money+=award;
     g.hist.push({s:g.season,lg:LEAGUES[g.league].n,club:g.teams[g.club].n,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:avgR,rank,gRank:rc.gRank,aRank:rc.aRank});
     const carry=!!g.tour;if(!carry)g.tour=makeTour(summerEvent());if(g.tour&&!carry)news(`[컵 대회] ${NATIONS[g.nat].n} 대표로 ${g.tour.name}에 나갑니다. ${g.tour.date} 개막.`);
-    g.end={rank,prize,offers,award,gRank:rc.gRank,aRank:rc.aRank,gTop:{n:rc.gList[0].n,v:rc.gList[0].g},aTop:{n:rc.aList[0].n,v:rc.aList[0].a},apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'};
+    addRep((rank===1?15:rank<=3?8:rank<=nT/2?3:0)+(rc.gRank===1&&g.ss.goals>0?10:0)+(rc.aRank===1&&g.ss.assists>0?6:0));
+    g.offers=[];offers=g.offers=genOffers('summer');g.agentUsed=false;
+    g.end={rank,prize,offers:[],award,gRank:rc.gRank,aRank:rc.aRank,gTop:{n:rc.gList[0].n,v:rc.gList[0].g},aTop:{n:rc.aList[0].n,v:rc.aList[0].a},apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'};
     news(`시즌 종료. 리그 ${rank}위, 상금 ${won(prize)}.`);g.phase='end';ui.tab='home';
   }else{g.phase='week';rollWeek()}
   save();
 }
 function newSeason(x){
   if(g.phase!=='end')return;
-  const of=x===''||x==null?null:g.end.offers[+x];
+  const of=x===''||x==null?null:g.offers[+x];
   if(of){if(of.l!==g.league){g.league=of.l;g.teams=mkTeams(of.l)}g.club=of.i;g.trust=40}
   g.season++;g.age++;g.week=0;g.ss={apps:0,goals:0,assists:0,rat:0};
   g.teams.forEach(t=>{t.w=t.d=t.l=t.gf=t.ga=0;t.str=cl(t.str+ri(-1,1),60,92)});
-  g.sched=makeSched(g.teams.length);g.wage=wage();g.end=null;g.tour=null;g.last=null;M=null;g.phase='week';ensureRace();rollWeek();
+  g.sched=makeSched(g.teams.length);g.wage=of&&of.wage?of.wage:wage();if(of&&of.bonus)g.money+=of.bonus;g.offers=[];g.rep=Math.round((g.rep||0)*.8);g.end=null;g.tour=null;g.last=null;M=null;g.phase='week';ensureRace();rollWeek();
   news(`${seasonLabel(g.season)} 시즌 개막. ${LEAGUES[g.league].n} ${g.teams[g.club].n} 소속, 새 주급 ${won(g.wage)}.`);save();
 }
 function changePos(p){if(p===g.pos||busy())return;g.pos=p;g.trust=cl(g.trust-10);ui.msg=`포지션을 ${POS[p].n}(으)로 바꿨습니다. 새 자리에 적응할 때까지 신임 -10.`}
@@ -616,7 +667,7 @@ function vHeader(){const t=g.teams[g.club];
   return `<header class="board"><div class="ovr"><b>${ovr()}</b><span>OVR</span></div>
   <div class="who"><h1>${esc(g.name)}</h1><p>${LEAGUES[g.league].n} · ${t.n} · ${POS[g.pos].n} · ${g.age}세 (${g.y0-18}년생) · ${g.ht}cm ${g.wt}kg</p><p>${dateStr()} · ${seasonLabel(g.season)} 시즌 ${g.week+1}/${W()}주</p></div>
   <dl class="meters"><div><dt>나이</dt><dd>${g.age}세</dd></div><div><dt>자금</dt><dd>${won(g.money)}</dd></div><div><dt>컨디션</dt><dd>${g.cond}</dd></div><div><dt>신임</dt><dd>${g.trust}</dd></div><div><dt>EXP</dt><dd>${g.exp}</dd></div></dl></header>
-  <nav class="tabs">${[['home','이번 주'],['train','훈련'],['match','경기'],['grow','능력치'],['money','자금'],['league','리그']].map(([k,n])=>`<button data-act="tab" data-arg="${k}" class="${ui.tab===k?'on':''}">${n}</button>`).join('')}</nav>
+  <nav class="tabs">${[['home','이번 주'],['train','훈련'],['match','경기'],['grow','능력치'],['money','자금'],['market','이적'],['league','리그']].map(([k,n])=>`<button data-act="tab" data-arg="${k}" class="${ui.tab===k?'on':''}">${n}</button>`).join('')}</nav>
   ${ui.msg?`<p class="notice">${esc(ui.msg)}</p>`:''}`}
 function roleCard(){const r=roleInfo(),col=r.key==='start'?'good':r.key==='bench'?'amber':'bad';
   return `<p>감독의 구상: <span class="tag ${col}">${ROLE[r.key]}</span></p>
@@ -627,7 +678,8 @@ function vHome(){
    <p>리그 <b>${e.rank}위</b> · 상금 ${won(e.prize)} · ${e.apps}경기 ${e.goals}골 ${e.assists}도움 · 평균 평점 ${e.avg}</p>
    ${e.gRank?`<p>득점 <b>${e.gRank}위</b> · 도움 <b>${e.aRank}위</b>${e.award?` · 개인상 상금 ${won(e.award)}`:''}</p><p class="small muted">득점왕 ${esc(e.gTop.n)} ${e.gTop.v}골 · 도움왕 ${esc(e.aTop.n)} ${e.aTop.v}도움</p>`:''}
    ${tourCard()}
-   ${e.offers.length?`<p class="notice">이적 제안이 왔습니다. 옮기면 신임은 40에서 다시 시작하고 주급은 새 리그 기준으로 정해집니다.</p>${e.offers.map((o,i)=>`<div class="item"><div><b>${o.n}</b><p class="small muted">${LEAGUES[o.l].n} · 전력 ${o.s}</p></div><button data-act="season" data-arg="${i}">이적</button></div>`).join('')}`:''}
+   <h3>여름 이적 시장</h3>${offerList('season')}
+   <p class="small muted">옮기면 신임은 40에서 다시 시작합니다. 명성과 에이전트 의뢰는 '이적' 탭에 있습니다.</p>
    <div class="row"><button class="primary" data-act="season" data-arg="">${g.teams[g.club].n}에 남아 새 시즌 시작</button></div></div>`}
   const f=fixture(),o=g.teams[f.opp];
   return `<div class="cols"><div class="panel"><h2>${g.week+1}주차 일정</h2><p class="small muted">${dateStr()}</p>
@@ -693,7 +745,7 @@ function vLeague(){const rc=raceInfo(),live=g.phase==='end'?[]:[{s:g.season,lg:L
 function render(){
   const app=document.getElementById('app');
   if(!g){app.innerHTML=vSetup();return}
-  app.innerHTML=vHeader()+({home:vHome,train:vTrain,match:vMatch,grow:vGrow,money:vMoney,league:vLeague}[ui.tab])();
+  app.innerHTML=vHeader()+({home:vHome,train:vTrain,match:vMatch,grow:vGrow,money:vMoney,market:vMarket,league:vLeague}[ui.tab])();
   const f=document.getElementById('feed');if(f)f.scrollTop=f.scrollHeight;
 }
 document.addEventListener('click',e=>{
@@ -711,6 +763,8 @@ document.addEventListener('click',e=>{
   else if(a==='auto')autoUp();
   else if(a==='match')return startMatch();
   else if(a==='intl')return startIntl(x);
+  else if(a==='xfer')xfer(+x);
+  else if(a==='agent')agent();
   else if(a==='setnat'){g.nat=+document.getElementById('natpick').value;ui.msg=`국적을 ${NATIONS[g.nat].n}(으)로 정했습니다.`}
   else if(a==='speed'){if(M)M.speed=+x}
   else if(a==='skip')return skipMatch();
