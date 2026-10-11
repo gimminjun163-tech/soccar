@@ -231,6 +231,7 @@ function load(){try{const s=JSON.parse(localStorage.getItem('career-save'));if(s
 
 const fixture=()=>{const p=g.sched[g.week].find(([h,a])=>h===g.club||a===g.club);return{opp:p[0]===g.club?p[1]:p[0],home:p[0]===g.club}};
 function roleInfo(){const t=g.teams[g.club];const sc=g.trust+(ovr()-(t.str+1))*4+(g.cond-70)*.3;
+  if(away())return{sc,key:'out',need:0,away:1};
   return{sc,key:sc>=55?'start':sc>=30?'bench':'out',need:Math.max(0,Math.ceil(55-sc))}}
 const ROLE={start:'선발',bench:'교체 명단',out:'명단 제외'};
 const cost=k=>Math.round(12+Math.max(0,g.stats[k]-60)*1.5);
@@ -244,22 +245,22 @@ const NATIONS=[['대한민국',78,'AFC'],['일본',80,'AFC'],['이란',77,'AFC']
  ['미국',79,'CONCACAF'],['멕시코',79,'CONCACAF'],['캐나다',77,'CONCACAF'],['파나마',73,'CONCACAF'],['코스타리카',72,'CONCACAF'],['자메이카',70,'CONCACAF'],
  ['모로코',84,'CAF'],['세네갈',82,'CAF'],['나이지리아',79,'CAF'],['이집트',79,'CAF'],['코트디부아르',79,'CAF'],['알제리',78,'CAF'],['카메룬',77,'CAF'],['튀니지',76,'CAF'],['가나',76,'CAF'],['남아프리카공화국',74,'CAF']
 ].map(([n,s,c])=>({n,s,c}));
-const WINDOWS=[4,8,13,31],NROLE={start:'대표팀 선발',bench:'대표팀 교체',out:'미소집'},FR_P=.6;
+const WPAIRS=[[4,5],[8,9],[13,14],[31,32]],WINDOWS=WPAIRS.flat(),FR_OUT=.25,NROLE={start:'대표팀 선발',bench:'대표팀 교체',out:'미소집'},FR_P=.77;
 const natOpts=sel=>NATIONS.map((x,i)=>`<option value="${i}" ${i===sel?'selected':''}>${x.n} (전력 ${x.s})</option>`).join('');
 function nRole(base){if(g.nat==null)return'out';const d=ovr()-(base==null?NATIONS[g.nat].s:base);return d>=-1?'start':d>=-6?'bench':'out'}
 const conf=()=>g.nat==null?'':NATIONS[g.nat].c;
 /* 대회 일정. 시즌은 Y년 8월에 개막하고, 대회마다 4년 주기와 개막일이 따로 있다.
    월드컵 2026·2030(6월), 아시안게임 2026·2030(9월), 아시안컵 2027·2031(1월) */
 function midEvents(){const Y=g.y0+g.season-1,c=conf(),ev=[];
-  if(c==='AFC'&&Y%4===2)ev.push({name:Y+' 아시안게임',week:5,date:'9월 19일',ag:1,big:1});
-  if(c==='AFC'&&(Y+1)%4===3)ev.push({name:(Y+1)+' 아시안컵',week:20,date:'1월 7일',big:1});
-  if(c==='CAF'&&(Y+1)%2===1)ev.push({name:(Y+1)+' 아프리카 네이션스컵',week:20,date:'1월 10일',big:1});
+  if(c==='AFC'&&Y%4===2)ev.push({name:Y+' 아시안게임',week:5,date:'9월 19일',d0:[Y,8,19],offs:[0,3,6,9,11,13,15],plan:[2,3,2],ag:1,big:1});
+  if(c==='AFC'&&(Y+1)%4===3)ev.push({name:(Y+1)+' 아시안컵',week:20,date:'1월 7일',d0:[Y+1,0,7],offs:[0,5,10,15,20,24,29],plan:[2,2,2,1],big:1});
+  if(c==='CAF'&&(Y+1)%2===1)ev.push({name:(Y+1)+' 아프리카 네이션스컵',week:20,date:'1월 10일',d0:[Y+1,0,10],offs:[0,5,10,15,20,24,29],plan:[2,2,2,1],big:1});
   return ev}
 function summerEvent(){const S=g.y0+g.season,c=conf();
-  if(S%4===2)return{name:S+' 월드컵',date:'6월 11일',wc:1,big:1};
-  if(c==='UEFA'&&S%4===0)return{name:S+' 유로',date:'6월 14일',big:1};
-  if(c==='CONMEBOL'&&S%4===0)return{name:S+' 코파 아메리카',date:'6월 20일'};
-  if(c==='CONCACAF'&&S%2===1)return{name:S+' 골드컵',date:'6월 15일'};
+  if(S%4===2)return{name:S+' 월드컵',date:'6월 11일',d0:[S,5,11],offs:[0,6,12,19,24,30,38],wc:1,big:1};
+  if(c==='UEFA'&&S%4===0)return{name:S+' 유로',date:'6월 14일',d0:[S,5,14],offs:[0,5,10,16,21,25,30],big:1};
+  if(c==='CONMEBOL'&&S%4===0)return{name:S+' 코파 아메리카',date:'6월 20일',d0:[S,5,20],offs:[0,5,10,15,19,24]};
+  if(c==='CONCACAF'&&S%2===1)return{name:S+' 골드컵',date:'6월 15일',d0:[S,5,15],offs:[0,5,10,15,19,24]};
   return null}
 /* 아시안게임은 U-23. 24세부터는 OVR이 A대표 전력 이상일 때만 와일드카드로 뽑힌다 */
 function tourRole(ev){if(g.nat==null)return'out';const n=NATIONS[g.nat];
@@ -267,8 +268,9 @@ function tourRole(ev){if(g.nat==null)return'out';const n=NATIONS[g.nat];
   return nRole()}
 const canFriendly=()=>g.phase==='post'&&!!g.fr&&!g.intlPlayed&&!busy();
 function rollWeek(){g.fr=null;if(g.nat==null)return;const nat=NATIONS[g.nat];
-  if(WINDOWS.includes(g.week)&&nRole()!=='out'&&R()<FR_P){const o=pick(NATIONS.filter((x,i)=>i!==g.nat&&Math.abs(x.s-nat.s)<=9));g.fr={n:o.n,str:o.s};
-    news(`[친선] 대표팀 소집. 이번 주 리그 경기 뒤 ${o.n}와 A매치 친선전이 잡혔습니다.`)}
+  const ev0=midEvents().find(e=>e.week===g.week),ntBusy=away()||(ev0&&tourRole(ev0)!=='out'),inWin=WINDOWS.includes(g.week);
+  if(!ntBusy&&nRole()!=='out'&&R()<(inWin?FR_P:FR_OUT)){const o=pick(NATIONS.filter((x,i)=>i!==g.nat&&Math.abs(x.s-nat.s)<=9));g.fr={n:o.n,str:o.s,out:!inWin};
+    news(`[친선] 대표팀 소집. ${inWin?'A매치 기간':'A매치 기간은 아니지만'} 이번 주 리그 경기 뒤 ${o.n}와 친선전이 잡혔습니다.`)}
   const ev=midEvents().find(e=>e.week===g.week);
   if(ev&&tourRole(ev)!=='out')news(`[컵 대회] ${ev.name} 대표팀에 소집됐습니다. ${ev.date} 개막.`)}
 function tourOpp(t){let c=t.pool.filter(x=>!t.used.includes(x.n));if(!c.length)c=t.pool;
@@ -276,12 +278,31 @@ function tourOpp(t){let c=t.pool.filter(x=>!t.used.includes(x.n));if(!c.length)c
   const o=pick(c);t.used.push(o.n);return o}
 function makeTour(ev){if(!ev||tourRole(ev)==='out')return null;const nat=NATIONS[g.nat],off=ev.ag?8:0;
   const t={name:ev.name,date:ev.date,wc:!!ev.wc,ag:!!ev.ag,ts:nat.s-off,idx:0,pts:0,done:false,champ:false,result:'',log:[],used:[],
+    mid:ev.week!=null,wk0:g.week,plan:ev.plan||null,
+    dates:ev.offs.map(o=>{const d=new Date(Date.UTC(ev.d0[0],ev.d0[1],ev.d0[2]+o));return `${d.getUTCMonth()+1}월 ${d.getUTCDate()}일`}),
     stages:['조별리그 1차전','조별리그 2차전','조별리그 3차전'].concat(ev.big?['16강','8강','4강','결승']:['8강','4강','결승']),
     pool:NATIONS.filter((x,i)=>i!==g.nat&&(ev.wc||x.c===nat.c)).map(x=>({n:x.n+(ev.ag?' U-23':''),str:x.s-off}))};
   t.next=tourOpp(t);g.cond=cl(g.cond+40);return t}
+/* 시즌 중 대회는 주마다 정해진 경기 수만 열린다. due = 이번 주까지 열린 경기 수 */
+function due(t){if(!t.mid||!t.plan||g.phase==='end')return t.stages.length;const k=g.week-t.wk0;if(k>=t.plan.length)return t.stages.length;
+  let n=0;for(let i=0;i<=k;i++)n+=t.plan[i];return n}
+const canTour=()=>!!g.tour&&!g.tour.done&&(g.phase==='post'||g.phase==='end')&&g.tour.idx<due(g.tour)&&!busy();
+const away=()=>!!(g.tour&&g.tour.mid&&!g.tour.done&&g.week>g.tour.wk0);
+function tourAdvance(t,my,op){const st=t.stages[t.idx],o=t.next,win=my>op,lose=my<op;let adv=true,res=`${my}-${op}`,extra='';
+  if(t.idx<3){t.pts+=win?3:lose?0:1;if(t.idx===2&&t.pts<4){adv=false;extra=`승점 ${t.pts}점, 조별리그에서 탈락했습니다.`}else if(t.idx===2)extra=`승점 ${t.pts}점으로 조별리그를 통과했습니다.`}
+  else if(lose){adv=false;extra=`${st}에서 탈락했습니다.`}
+  else if(!win){adv=R()<cl(.5+(t.ts-o.str)*.01,.25,.75);res+=adv?' (승부차기 승)':' (승부차기 패)';extra=adv?'승부차기 끝에 다음 라운드로 갑니다!':`승부차기 끝에 ${st}에서 탈락했습니다.`}
+  t.log.push(`${(t.dates||[])[t.idx]||''} ${st} · ${o.n} ${res}`.trim());t.idx++;
+  if(!adv){t.done=true;t.result=extra}
+  else if(t.idx>=t.stages.length){t.done=true;t.champ=true;const pz=t.wc?5000:t.ag?1500:2000,ttl=t.name+(t.ag?' 금메달':' 우승');g.money+=pz;g.nt.titles.push(ttl);extra=`${ttl}! 포상금 ${won(pz)}.`;t.result=extra;news(`[컵 대회] ${NATIONS[g.nat].n}, ${ttl}!`)}
+  else t.next=tourOpp(t);
+  return extra}
+/* 이번 주에 열렸는데 직접 뛰지 않은 경기는 나 없이 진행 */
+function autoTour(){const t=g.tour;while(!t.done&&t.idx<due(t)){const o=t.next,st=t.stages[t.idx],d=t.ts-o.str,my=pois(cl(1.35+d*.06,.2,4)),op=pois(cl(1.35-d*.06,.2,4));
+  const ex=tourAdvance(t,my,op);news(`[컵 대회] ${t.name} ${st} ${o.n}전 ${my}-${op} (결장)${ex?' · '+ex:''}`)}}
 function startIntl(kind){
   if(busy()||g.nat==null)return;const nat=NATIONS[g.nat];let r,opp,label,T;
-  if(kind==='tour'){const t=g.tour;if((g.phase!=='end'&&g.phase!=='post')||!t||t.done)return;r=tourRole(t);if(r==='out')r='bench';opp=t.next;label=`${t.name} ${t.stages[t.idx]}`;T={n:nat.n+(t.ag?' U-23':''),str:t.ts}}
+  if(kind==='tour'){const t=g.tour;if(!canTour())return;r=tourRole(t);if(r==='out')r='bench';opp=t.next;label=`${t.name} ${t.stages[t.idx]}`;T={n:nat.n+(t.ag?' U-23':''),str:t.ts}}
   else{if(!canFriendly())return;r=nRole();if(r==='out')r='bench';opp=g.fr;label='A매치 친선전';T={n:nat.n,str:nat.s}}
   M={min:0,my:0,op:0,home:R()<.5,opp:-1,role:r,on:r==='start',inMin:0,outMin:0,played:0,rating:6,goals:0,assists:0,shots:0,keyp:0,drib:0,tack:0,lines:[],done:false,speed:1,timer:null,
     T,O:opp,intl:{kind,label}};
@@ -296,39 +317,35 @@ function finishIntl(){
   if(played){m.rating+=win?.2:lose?-.2:0;rating=Math.round(cl(m.rating,3,10)*10)/10;
     exp=Math.round((played*.35+Math.max(0,rating-6)*18+m.goals*15+m.assists*10+(win?8:0))*1.2);bonus=50+m.goals*30+m.assists*20;
     g.nt.caps++;g.nt.goals+=m.goals;g.nt.assists+=m.assists;g.cond=cl(g.cond-Math.round(played*.15))}
-  if(cup){const t=g.tour,st=t.stages[t.idx];let adv=true,res=`${m.my}-${m.op}`;
-    if(t.idx<3){t.pts+=win?3:lose?0:1;if(t.idx===2&&t.pts<4){adv=false;extra=`승점 ${t.pts}점, 조별리그에서 탈락했습니다.`}else if(t.idx===2)extra=`승점 ${t.pts}점으로 조별리그를 통과했습니다.`}
-    else if(lose){adv=false;extra=`${st}에서 탈락했습니다.`}
-    else if(!win){adv=R()<cl(.5+(m.T.str-m.O.str)*.01,.25,.75);res+=adv?' (승부차기 승)':' (승부차기 패)';extra=adv?'승부차기 끝에 다음 라운드로 갑니다!':`승부차기 끝에 ${st}에서 탈락했습니다.`}
-    t.log.push(`${st} · ${m.O.n} ${res}`);t.idx++;g.cond=cl(g.cond+20);
-    if(!adv){t.done=true;t.result=extra}
-    else if(t.idx>=t.stages.length){t.done=true;t.champ=true;const pz=t.wc?5000:t.ag?1500:2000,ttl=t.name+(t.ag?' 금메달':' 우승');g.money+=pz;g.nt.titles.push(ttl);extra=`${ttl}! 포상금 ${won(pz)}.`;t.result=extra;news(`[컵 대회] ${NATIONS[g.nat].n}, ${ttl}!`)}
-    else t.next=tourOpp(t);
-  }else g.intlPlayed=true;
+  if(cup){extra=tourAdvance(g.tour,m.my,m.op);g.cond=cl(g.cond+20)}else g.intlPlayed=true;
   g.exp+=exp;g.money+=bonus;
   g.last={my:m.my,op:m.op,rating,exp,bonus,dt:0,played,goals:m.goals,assists:m.assists,shots:m.shots,keyp:m.keyp,drib:m.drib,tack:m.tack,intl:m.intl.label,extra};
   news(`[${cup?'컵 대회':'친선'}] ${m.intl.label} ${m.O.n}전 ${m.my}-${m.op}${rating?` · 평점 ${rating.toFixed(1)}`:' · 출전 없음'}`);save();
 }
-function tourCard(){const t=g.tour;if(!t)return'';
+function tourCard(){const t=g.tour;if(!t)return'';const nx=t.done?'':`${(t.dates||[])[t.idx]||''} ${t.stages[t.idx]} · ${t.next.n} (전력 ${t.next.str})`;
   return `<div class="panel"><div class="row spread"><h3>${t.name} · ${NATIONS[g.nat].n}${t.ag?' U-23':''}</h3><span class="tag amber">컵 대회</span></div>
-  <p class="small muted">${t.date} 개막${t.ag?' · 23세 이하와 와일드카드만 출전':''}</p>${t.log.map(x=>`<p class="small">${x}</p>`).join('')}
-  ${t.done?`<p><b class="${t.champ?'good':''}">${t.result}</b></p>`:`<p>다음 경기: ${t.stages[t.idx]} · ${t.next.n} (전력 ${t.next.str})${t.idx<3?` · 현재 승점 ${t.pts}`:''}</p><div class="row"><button class="primary" data-act="intl" data-arg="tour">경기 시작</button><span class="small muted">${g.phase==='end'?'새 시즌을 시작하면':'다음 주로 넘어가면'} 남은 대회 경기는 건너뜁니다.</span></div>`}</div>`}
+  <p class="small muted">${t.date} 개막${t.ag?' · 23세 이하와 와일드카드만 출전':''}${t.idx<3&&!t.done?` · 현재 승점 ${t.pts}`:''}</p>${t.log.map(x=>`<p class="small">${x}</p>`).join('')}
+  ${t.done?`<p><b class="${t.champ?'good':''}">${t.result}</b></p>`
+   :canTour()?`<p>다음 경기: ${nx}</p><div class="row"><button class="primary" data-act="intl" data-arg="tour">경기 시작</button><span class="small muted">${g.phase==='end'?'새 시즌을 시작하면 남은 경기는 건너뜁니다.':`이번 주에 열리는 경기 ${due(t)-t.idx}개. 치르지 않고 넘어가면 나 없이 진행됩니다.`}</span></div>`
+   :g.phase==='week'?`<p class="notice">대표팀 차출 중입니다. 이번 주 소속팀 경기는 결장으로 처리되고, 그 뒤에 대회 경기를 치릅니다.</p><p>다음 경기: ${nx}</p>`
+   :`<p class="notice">이번 주 대회 일정을 마쳤습니다. 다음 경기는 다음 주에 열립니다.</p><p>다음 경기: ${nx}</p>`}</div>`}
 function natPanel(){
   if(g.nat==null)return `<div class="panel"><h2>국가대표</h2><p>국적을 정하면 대표팀에 소집될 수 있습니다. 한 번 정하면 바꿀 수 없습니다.</p><div class="row"><select id="natpick">${natOpts(0)}</select><button class="primary" data-act="setnat">국적 확정</button></div></div>`;
   const n=NATIONS[g.nat],r=nRole(),md=m=>{const d=dateOf(g.season,m);return `${d.getUTCMonth()+1}월 ${d.getUTCDate()}일`};
   const ev=midEvents().find(e=>e.week===g.week),se=summerEvent(),sched=[];
-  WINDOWS.filter(w=>w>g.week&&w<W()).forEach(w=>sched.push({w,h:`<span class="tag">친선</span> ${md(w)} 주 A매치 기간 · 경기가 잡힐 확률 ${Math.round(FR_P*100)}%`}));
+  WPAIRS.filter(([a,b])=>b>g.week&&a<W()).forEach(([a,b])=>sched.push({w:a,h:`<span class="tag">친선</span> ${md(a)}~${md(b)} 주 A매치 기간 (2주) · 주마다 경기가 잡힐 확률 ${Math.round(FR_P*100)}%`}));
   midEvents().filter(e=>e.week>g.week).forEach(e=>sched.push({w:e.week,h:`<span class="tag amber">컵 대회</span> ${e.name} · ${e.date} 개막${e.ag?' · U-23 (와일드카드는 OVR '+n.s+' 이상)':''}`}));
   if(se)sched.push({w:99,h:`<span class="tag amber">컵 대회</span> ${se.name} · ${se.date} 개막 (시즌 종료 뒤)`});
   sched.sort((a,b)=>a.w-b.w);
   return `<div class="panel"><div class="row spread"><h2>국가대표</h2><span class="tag ${r==='start'?'good':r==='bench'?'amber':'bad'}">${NROLE[r]}</span></div>
   <p>${n.n} (전력 ${n.s}) · A매치 ${g.nt.caps}경기 ${g.nt.goals}골 ${g.nt.assists}도움</p>${g.nt.titles.length?`<p class="small">우승 이력: ${g.nt.titles.join(', ')}</p>`:''}
   <p class="small muted">${r==='out'?`소집되려면 OVR ${n.s-6} 이상이 필요합니다.`:r==='bench'?`선발로 뛰려면 OVR ${n.s-1} 이상이 필요합니다.`:'대표팀 주전입니다.'}</p>
-  ${g.fr&&!g.intlPlayed?`<p class="notice"><span class="tag">친선</span> 이번 주 소집: ${g.fr.n}(전력 ${g.fr.str})와 A매치 친선전. ${g.phase==='post'?'지금 치를 수 있습니다.':'리그 경기를 마치면 치를 수 있습니다.'}</p>`:''}
+  ${g.fr&&!g.intlPlayed?`<p class="notice"><span class="tag">친선</span> 이번 주 소집: ${g.fr.n}(전력 ${g.fr.str})와 A매치 친선전${g.fr.out?' (A매치 기간 외)':''}. ${g.phase==='post'?'지금 치를 수 있습니다.':'리그 경기를 마치면 치를 수 있습니다.'}</p>`:''}
   ${canFriendly()?`<div class="row"><button class="primary" data-act="intl" data-arg="fr">친선전 치르기</button><span class="small muted">건너뛰려면 그냥 다음 주로 넘어가세요.</span></div>`:''}
   ${ev&&!g.tour&&g.phase==='week'&&tourRole(ev)!=='out'?`<p class="notice"><span class="tag amber">컵 대회</span> 이번 주 소집: ${ev.name} (${ev.date} 개막). 리그 경기를 마치면 대회가 시작됩니다.</p>`:''}
-  ${g.phase==='post'?tourCard():''}
-  <h3>남은 대표팀 일정</h3>${sched.length?sched.map(x=>`<p class="small">${x.h}</p>`).join(''):'<p class="small muted">이번 시즌에는 남은 일정이 없습니다.</p>'}</div>`}
+  ${g.phase!=='end'?tourCard():''}
+  <h3>남은 대표팀 일정</h3>${sched.length?sched.map(x=>`<p class="small">${x.h}</p>`).join(''):'<p class="small muted">이번 시즌에는 남은 일정이 없습니다.</p>'}
+  <p class="small muted">A매치 기간이 아닌 주에도 ${Math.round(FR_OUT*100)}% 확률로 친선전이 잡힙니다. 컵 대회에 차출된 주에는 친선전이 없습니다.</p></div>`}
 
 /* ---------- 득점왕 · 도움왕 경쟁 ---------- */
 const NAMES={
@@ -422,7 +439,7 @@ function startMatch(){
   if(r.key==='start'&&g.cond<50)M.outMin=ri(60,75);
   const T=g.teams[g.club].n,O=g.teams[f.opp].n;
   line(`${f.home?'홈':'원정'} 경기. ${T} 대 ${O}, 킥오프!`);
-  line(r.key==='start'?`${g.name}, 오늘 선발로 나섭니다.`:r.key==='bench'?`${g.name}, 벤치에서 출발합니다.`:`${g.name}, 오늘은 명단에서 빠졌습니다. 관중석에서 지켜봅니다.`,'me');
+  line(r.key==='start'?`${g.name}, 오늘 선발로 나섭니다.`:r.key==='bench'?`${g.name}, 벤치에서 출발합니다.`:r.away?`${g.name}, 대표팀 차출로 자리를 비웠습니다.`:`${g.name}, 오늘은 명단에서 빠졌습니다. 관중석에서 지켜봅니다.`,'me');
   ui.tab='match';tick();
 }
 function line(t,c){M.lines.push({m:M.min,t,c:c||''})}
@@ -511,17 +528,19 @@ function finishMatch(){
   g.results.unshift({s:g.season,w:g.week+1,opp:t[m.opp].n,home:m.home,sc:`${m.my}-${m.op}`,r:win?'승':lose?'패':'무',rating,ga:`${m.goals}골 ${m.assists}도움`});
   g.results.length=Math.min(g.results.length,40);
   news(`${t[m.opp].n}전 ${m.my}-${m.op} ${win?'승리':lose?'패배':'무승부'}${rating?` · 평점 ${rating.toFixed(1)}`:' · 출전 없음'}`);
-  {const ev=midEvents().find(e=>e.week===g.week);if(ev)g.tour=makeTour(ev)}
+  {const ev=midEvents().find(e=>e.week===g.week);if(ev&&!g.tour)g.tour=makeTour(ev)}
   g.phase='post';save();
 }
 function nextWeek(){
   if(g.phase!=='post')return;
-  if(g.trained===0){g.trust=cl(g.trust-3);news('이번 주 훈련에 한 번도 나오지 않았습니다. 신임 -3.')}
+  if(g.trained===0&&!(g.tour&&g.tour.mid)){g.trust=cl(g.trust-3);news('이번 주 훈련에 한 번도 나오지 않았습니다. 신임 -3.')}
   g.money+=g.wage;
   g.trust=cl(g.trust+Math.round((g.tend.pro-50)/25));
   for(const k in INV){const o=g.inv[k];if(o.v>0){const r=Math.max(-.9,INV[k].m+gauss()*INV[k].s);o.v*=1+r;o.ch=r}else o.ch=0}
   g.cond=cl(g.cond+30+(g.perks.bed?6:0));
-  g.tour=null;g.fr=null;g.intlPlayed=false;g.trainLeft=2;g.trained=0;g.bought={};g.last=null;M=null;ui.train=null;g.week++;
+  if(g.tour&&g.tour.mid&&!g.tour.done)autoTour();
+  if(!g.tour||!g.tour.mid||g.tour.done)g.tour=null;
+  g.fr=null;g.intlPlayed=false;g.trainLeft=2;g.trained=0;g.bought={};g.last=null;M=null;ui.train=null;g.week++;
   if(g.week>=W()){
     g.week=W()-1;const nT=g.teams.length,rank=table().findIndex(x=>x.i===g.club)+1,prize=Math.round((nT+1-rank)*100*LEAGUES[g.league].m);g.money+=prize;
     const o=ovr(),offers=[],c=[],seen={};
@@ -533,7 +552,7 @@ function nextWeek(){
     if(rc.aRank===1&&g.ss.assists>0){award+=Math.round(300*mm);news(`${g.ss.assists}도움으로 리그 도움왕에 올랐습니다!`)}
     g.money+=award;
     g.hist.push({s:g.season,lg:LEAGUES[g.league].n,club:g.teams[g.club].n,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:avgR,rank,gRank:rc.gRank,aRank:rc.aRank});
-    g.tour=makeTour(summerEvent());if(g.tour)news(`[컵 대회] ${NATIONS[g.nat].n} 대표로 ${g.tour.name}에 나갑니다. ${g.tour.date} 개막.`);
+    const carry=!!g.tour;if(!carry)g.tour=makeTour(summerEvent());if(g.tour&&!carry)news(`[컵 대회] ${NATIONS[g.nat].n} 대표로 ${g.tour.name}에 나갑니다. ${g.tour.date} 개막.`);
     g.end={rank,prize,offers,award,gRank:rc.gRank,aRank:rc.aRank,gTop:{n:rc.gList[0].n,v:rc.gList[0].g},aTop:{n:rc.aList[0].n,v:rc.aList[0].a},apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'};
     news(`시즌 종료. 리그 ${rank}위, 상금 ${won(prize)}.`);g.phase='end';ui.tab='home';
   }else{g.phase='week';rollWeek()}
@@ -584,7 +603,7 @@ function vHeader(){const t=g.teams[g.club];
 function roleCard(){const r=roleInfo(),col=r.key==='start'?'good':r.key==='bench'?'amber':'bad';
   return `<p>감독의 구상: <span class="tag ${col}">${ROLE[r.key]}</span></p>
   <div class="bar"><i style="width:${cl(r.sc)}%"></i></div>
-  <p class="small muted">${r.key==='start'?'지금 평가라면 선발입니다. 컨디션이 50 아래면 후반에 교체됩니다.':`선발까지 평가 ${r.need}점이 더 필요합니다. 신임, 경쟁자 대비 OVR, 컨디션이 반영됩니다.`}</p>`}
+  <p class="small muted">${r.away?'대표팀 차출 중이라 이번 주 리그 경기는 결장합니다. 신임은 깎이지 않습니다.':r.key==='start'?'지금 평가라면 선발입니다. 컨디션이 50 아래면 후반에 교체됩니다.':`선발까지 평가 ${r.need}점이 더 필요합니다. 신임, 경쟁자 대비 OVR, 컨디션이 반영됩니다.`}</p>`}
 function vHome(){
   if(g.phase==='end'){const e=g.end;return `<div class="panel"><h2>${seasonLabel(g.season)} 시즌 결산</h2>
    <p>리그 <b>${e.rank}위</b> · 상금 ${won(e.prize)} · ${e.apps}경기 ${e.goals}골 ${e.assists}도움 · 평균 평점 ${e.avg}</p>
