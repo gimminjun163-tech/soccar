@@ -248,7 +248,7 @@ function roleInfo(){const t=g.teams[g.club];const sc=g.trust+(ovr()-(t.str+1))*4
   if(away())return{sc,key:'out',need:0,away:1};
   return{sc,key:sc>=55?'start':sc>=30?'bench':'out',need:Math.max(0,Math.ceil(55-sc))}}
 const ROLE={start:'선발',bench:'교체 명단',out:'명단 제외'};
-const cost=k=>Math.round(5+Math.max(0,g.stats[k]-60)*.6);
+const cost=k=>Math.round(8+Math.max(0,g.stats[k]-60)*1);
 const table=()=>g.teams.map((t,i)=>({i,...t,p:t.w+t.d+t.l,pts:t.w*3+t.d,gd:t.gf-t.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.i-b.i);
 const busy=()=>M&&!M.done;
 
