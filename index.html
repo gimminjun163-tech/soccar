@@ -45,7 +45,7 @@ input,select{font:inherit;color:inherit;background:var(--surface);border:1px sol
 .who{flex:1 1 200px;min-width:0}
 .who h1{font-family:var(--display);font-weight:400;font-size:1.7rem;overflow-wrap:anywhere}
 .who p{opacity:.75;font-size:.88rem}
-.meters{display:grid;grid-template-columns:repeat(4,auto);gap:4px 18px;margin:0;flex:0 1 auto}
+.meters{display:grid;grid-template-columns:repeat(5,auto);gap:4px 18px;margin:0;flex:0 1 auto}
 .meters div{display:flex;flex-direction:column}
 .meters dt{font-size:.72rem;letter-spacing:.08em;opacity:.65}
 .meters dd{margin:0;font-family:var(--display);font-size:1.15rem}
@@ -244,59 +244,91 @@ const NATIONS=[['대한민국',78,'AFC'],['일본',80,'AFC'],['이란',77,'AFC']
  ['미국',79,'CONCACAF'],['멕시코',79,'CONCACAF'],['캐나다',77,'CONCACAF'],['파나마',73,'CONCACAF'],['코스타리카',72,'CONCACAF'],['자메이카',70,'CONCACAF'],
  ['모로코',84,'CAF'],['세네갈',82,'CAF'],['나이지리아',79,'CAF'],['이집트',79,'CAF'],['코트디부아르',79,'CAF'],['알제리',78,'CAF'],['카메룬',77,'CAF'],['튀니지',76,'CAF'],['가나',76,'CAF'],['남아프리카공화국',74,'CAF']
 ].map(([n,s,c])=>({n,s,c}));
-const WINDOWS=[4,8,13,31],NROLE={start:'대표팀 선발',bench:'대표팀 교체',out:'미소집'};
+const WINDOWS=[4,8,13,31],NROLE={start:'대표팀 선발',bench:'대표팀 교체',out:'미소집'},FR_P=.6;
 const natOpts=sel=>NATIONS.map((x,i)=>`<option value="${i}" ${i===sel?'selected':''}>${x.n} (전력 ${x.s})</option>`).join('');
-function nRole(){if(g.nat==null)return'out';const d=ovr()-NATIONS[g.nat].s;return d>=-1?'start':d>=-6?'bench':'out'}
-function tourFor(y,c){if(y%4===2)return y+' 월드컵';
-  if(c==='UEFA'&&y%4===0)return y+' 유로';if(c==='CONMEBOL'&&y%4===0)return y+' 코파 아메리카';
-  if(c==='AFC'&&y%4===3)return y+' 아시안컵';if(c==='CAF'&&y%2===1)return y+' 아프리카 네이션스컵';if(c==='CONCACAF'&&y%2===1)return y+' 골드컵';return null}
-const canFriendly=()=>g.nat!=null&&g.phase==='post'&&WINDOWS.includes(g.week)&&!g.intlPlayed&&nRole()!=='out'&&!busy();
+function nRole(base){if(g.nat==null)return'out';const d=ovr()-(base==null?NATIONS[g.nat].s:base);return d>=-1?'start':d>=-6?'bench':'out'}
+const conf=()=>g.nat==null?'':NATIONS[g.nat].c;
+/* 대회 일정. 시즌은 Y년 8월에 개막하고, 대회마다 4년 주기와 개막일이 따로 있다.
+   월드컵 2026·2030(6월), 아시안게임 2026·2030(9월), 아시안컵 2027·2031(1월) */
+function midEvents(){const Y=g.y0+g.season-1,c=conf(),ev=[];
+  if(c==='AFC'&&Y%4===2)ev.push({name:Y+' 아시안게임',week:5,date:'9월 19일',ag:1,big:1});
+  if(c==='AFC'&&(Y+1)%4===3)ev.push({name:(Y+1)+' 아시안컵',week:20,date:'1월 7일',big:1});
+  if(c==='CAF'&&(Y+1)%2===1)ev.push({name:(Y+1)+' 아프리카 네이션스컵',week:20,date:'1월 10일',big:1});
+  return ev}
+function summerEvent(){const S=g.y0+g.season,c=conf();
+  if(S%4===2)return{name:S+' 월드컵',date:'6월 11일',wc:1,big:1};
+  if(c==='UEFA'&&S%4===0)return{name:S+' 유로',date:'6월 14일',big:1};
+  if(c==='CONMEBOL'&&S%4===0)return{name:S+' 코파 아메리카',date:'6월 20일'};
+  if(c==='CONCACAF'&&S%2===1)return{name:S+' 골드컵',date:'6월 15일'};
+  return null}
+/* 아시안게임은 U-23. 24세부터는 OVR이 A대표 전력 이상일 때만 와일드카드로 뽑힌다 */
+function tourRole(ev){if(g.nat==null)return'out';const n=NATIONS[g.nat];
+  if(ev.ag)return g.age<=23?nRole(n.s-8):(ovr()>=n.s?'start':'out');
+  return nRole()}
+const canFriendly=()=>g.phase==='post'&&!!g.fr&&!g.intlPlayed&&!busy();
+function rollWeek(){g.fr=null;if(g.nat==null)return;const nat=NATIONS[g.nat];
+  if(WINDOWS.includes(g.week)&&nRole()!=='out'&&R()<FR_P){const o=pick(NATIONS.filter((x,i)=>i!==g.nat&&Math.abs(x.s-nat.s)<=9));g.fr={n:o.n,str:o.s};
+    news(`[친선] 대표팀 소집. 이번 주 리그 경기 뒤 ${o.n}와 A매치 친선전이 잡혔습니다.`)}
+  const ev=midEvents().find(e=>e.week===g.week);
+  if(ev&&tourRole(ev)!=='out')news(`[컵 대회] ${ev.name} 대표팀에 소집됐습니다. ${ev.date} 개막.`)}
 function tourOpp(t){let c=t.pool.filter(x=>!t.used.includes(x.n));if(!c.length)c=t.pool;
   if(t.idx>=3){c=[...c].sort((a,b)=>b.str-a.str);c=c.slice(0,Math.max(2,Math.ceil(c.length/2)))}
   const o=pick(c);t.used.push(o.n);return o}
-function makeTour(){if(g.nat==null||nRole()==='out')return null;const nat=NATIONS[g.nat],y=g.y0+g.season,name=tourFor(y,nat.c);if(!name)return null;
-  const wc=y%4===2,big=wc||nat.c==='UEFA';
-  const t={name,wc,idx:0,pts:0,done:false,champ:false,result:'',log:[],used:[],
-    stages:['조별리그 1차전','조별리그 2차전','조별리그 3차전'].concat(big?['16강','8강','4강','결승']:['8강','4강','결승']),
-    pool:NATIONS.filter((x,i)=>i!==g.nat&&(wc||x.c===nat.c)).map(x=>({n:x.n,str:x.s}))};
+function makeTour(ev){if(!ev||tourRole(ev)==='out')return null;const nat=NATIONS[g.nat],off=ev.ag?8:0;
+  const t={name:ev.name,date:ev.date,wc:!!ev.wc,ag:!!ev.ag,ts:nat.s-off,idx:0,pts:0,done:false,champ:false,result:'',log:[],used:[],
+    stages:['조별리그 1차전','조별리그 2차전','조별리그 3차전'].concat(ev.big?['16강','8강','4강','결승']:['8강','4강','결승']),
+    pool:NATIONS.filter((x,i)=>i!==g.nat&&(ev.wc||x.c===nat.c)).map(x=>({n:x.n+(ev.ag?' U-23':''),str:x.s-off}))};
   t.next=tourOpp(t);g.cond=cl(g.cond+40);return t}
 function startIntl(kind){
-  if(busy()||g.nat==null)return;const nat=NATIONS[g.nat];let r=nRole(),opp,label;
-  if(kind==='tour'){const t=g.tour;if(g.phase!=='end'||!t||t.done)return;if(r==='out')r='bench';opp=t.next;label=`${t.name} ${t.stages[t.idx]}`}
-  else{if(!canFriendly())return;const c=NATIONS.filter((x,i)=>i!==g.nat&&Math.abs(x.s-nat.s)<=9),o=pick(c);opp={n:o.n,str:o.s};label='A매치 친선전'}
+  if(busy()||g.nat==null)return;const nat=NATIONS[g.nat];let r,opp,label,T;
+  if(kind==='tour'){const t=g.tour;if((g.phase!=='end'&&g.phase!=='post')||!t||t.done)return;r=tourRole(t);if(r==='out')r='bench';opp=t.next;label=`${t.name} ${t.stages[t.idx]}`;T={n:nat.n+(t.ag?' U-23':''),str:t.ts}}
+  else{if(!canFriendly())return;r=nRole();if(r==='out')r='bench';opp=g.fr;label='A매치 친선전';T={n:nat.n,str:nat.s}}
   M={min:0,my:0,op:0,home:R()<.5,opp:-1,role:r,on:r==='start',inMin:0,outMin:0,played:0,rating:6,goals:0,assists:0,shots:0,keyp:0,drib:0,tack:0,lines:[],done:false,speed:1,timer:null,
-    T:{n:nat.n,str:nat.s},O:opp,intl:{kind,label}};
+    T,O:opp,intl:{kind,label}};
   if(r==='bench'&&R()<.6)M.inMin=ri(55,80);
   if(r==='start'&&g.cond<50)M.outMin=ri(60,75);
-  line(`${label}. ${nat.n} 대 ${opp.n}, 킥오프!`);
+  line(`${kind==='tour'?'컵 대회':'친선 경기'} · ${label}. ${T.n} 대 ${opp.n}, 킥오프!`);
   line(r==='start'?`${g.name}, 대표팀 선발로 나섭니다.`:`${g.name}, 대표팀 벤치에서 출발합니다.`,'me');
   ui.tab='match';tick();
 }
 function finishIntl(){
-  const m=M,win=m.my>m.op,lose=m.my<m.op,played=m.played;let rating=null,exp=5,bonus=0,extra='';
+  const m=M,win=m.my>m.op,lose=m.my<m.op,played=m.played,cup=m.intl.kind==='tour';let rating=null,exp=5,bonus=0,extra='';
   if(played){m.rating+=win?.2:lose?-.2:0;rating=Math.round(cl(m.rating,3,10)*10)/10;
     exp=Math.round((played*.35+Math.max(0,rating-6)*18+m.goals*15+m.assists*10+(win?8:0))*1.2);bonus=50+m.goals*30+m.assists*20;
     g.nt.caps++;g.nt.goals+=m.goals;g.nt.assists+=m.assists;g.cond=cl(g.cond-Math.round(played*.15))}
-  if(m.intl.kind==='tour'){const t=g.tour,st=t.stages[t.idx];let adv=true,res=`${m.my}-${m.op}`;
+  if(cup){const t=g.tour,st=t.stages[t.idx];let adv=true,res=`${m.my}-${m.op}`;
     if(t.idx<3){t.pts+=win?3:lose?0:1;if(t.idx===2&&t.pts<4){adv=false;extra=`승점 ${t.pts}점, 조별리그에서 탈락했습니다.`}else if(t.idx===2)extra=`승점 ${t.pts}점으로 조별리그를 통과했습니다.`}
     else if(lose){adv=false;extra=`${st}에서 탈락했습니다.`}
     else if(!win){adv=R()<cl(.5+(m.T.str-m.O.str)*.01,.25,.75);res+=adv?' (승부차기 승)':' (승부차기 패)';extra=adv?'승부차기 끝에 다음 라운드로 갑니다!':`승부차기 끝에 ${st}에서 탈락했습니다.`}
     t.log.push(`${st} · ${m.O.n} ${res}`);t.idx++;g.cond=cl(g.cond+20);
     if(!adv){t.done=true;t.result=extra}
-    else if(t.idx>=t.stages.length){t.done=true;t.champ=true;const pz=t.wc?5000:2000;g.money+=pz;g.nt.titles.push(t.name);extra=`${t.name} 우승! 포상금 ${won(pz)}.`;t.result=extra;news(`${NATIONS[g.nat].n}, ${t.name} 우승!`)}
+    else if(t.idx>=t.stages.length){t.done=true;t.champ=true;const pz=t.wc?5000:t.ag?1500:2000,ttl=t.name+(t.ag?' 금메달':' 우승');g.money+=pz;g.nt.titles.push(ttl);extra=`${ttl}! 포상금 ${won(pz)}.`;t.result=extra;news(`[컵 대회] ${NATIONS[g.nat].n}, ${ttl}!`)}
     else t.next=tourOpp(t);
   }else g.intlPlayed=true;
   g.exp+=exp;g.money+=bonus;
   g.last={my:m.my,op:m.op,rating,exp,bonus,dt:0,played,goals:m.goals,assists:m.assists,shots:m.shots,keyp:m.keyp,drib:m.drib,tack:m.tack,intl:m.intl.label,extra};
-  news(`${m.intl.label} ${m.O.n}전 ${m.my}-${m.op}${rating?` · 평점 ${rating.toFixed(1)}`:' · 출전 없음'}`);save();
+  news(`[${cup?'컵 대회':'친선'}] ${m.intl.label} ${m.O.n}전 ${m.my}-${m.op}${rating?` · 평점 ${rating.toFixed(1)}`:' · 출전 없음'}`);save();
 }
+function tourCard(){const t=g.tour;if(!t)return'';
+  return `<div class="panel"><div class="row spread"><h3>${t.name} · ${NATIONS[g.nat].n}${t.ag?' U-23':''}</h3><span class="tag amber">컵 대회</span></div>
+  <p class="small muted">${t.date} 개막${t.ag?' · 23세 이하와 와일드카드만 출전':''}</p>${t.log.map(x=>`<p class="small">${x}</p>`).join('')}
+  ${t.done?`<p><b class="${t.champ?'good':''}">${t.result}</b></p>`:`<p>다음 경기: ${t.stages[t.idx]} · ${t.next.n} (전력 ${t.next.str})${t.idx<3?` · 현재 승점 ${t.pts}`:''}</p><div class="row"><button class="primary" data-act="intl" data-arg="tour">경기 시작</button><span class="small muted">${g.phase==='end'?'새 시즌을 시작하면':'다음 주로 넘어가면'} 남은 대회 경기는 건너뜁니다.</span></div>`}</div>`}
 function natPanel(){
   if(g.nat==null)return `<div class="panel"><h2>국가대표</h2><p>국적을 정하면 대표팀에 소집될 수 있습니다. 한 번 정하면 바꿀 수 없습니다.</p><div class="row"><select id="natpick">${natOpts(0)}</select><button class="primary" data-act="setnat">국적 확정</button></div></div>`;
-  const n=NATIONS[g.nat],r=nRole(),tn=tourFor(g.y0+g.season,n.c),wk=WINDOWS.find(w=>w>=g.week&&w<W()),d=wk!=null?dateOf(g.season,wk):null;
+  const n=NATIONS[g.nat],r=nRole(),md=m=>{const d=dateOf(g.season,m);return `${d.getUTCMonth()+1}월 ${d.getUTCDate()}일`};
+  const ev=midEvents().find(e=>e.week===g.week),se=summerEvent(),sched=[];
+  WINDOWS.filter(w=>w>g.week&&w<W()).forEach(w=>sched.push({w,h:`<span class="tag">친선</span> ${md(w)} 주 A매치 기간 · 경기가 잡힐 확률 ${Math.round(FR_P*100)}%`}));
+  midEvents().filter(e=>e.week>g.week).forEach(e=>sched.push({w:e.week,h:`<span class="tag amber">컵 대회</span> ${e.name} · ${e.date} 개막${e.ag?' · U-23 (와일드카드는 OVR '+n.s+' 이상)':''}`}));
+  if(se)sched.push({w:99,h:`<span class="tag amber">컵 대회</span> ${se.name} · ${se.date} 개막 (시즌 종료 뒤)`});
+  sched.sort((a,b)=>a.w-b.w);
   return `<div class="panel"><div class="row spread"><h2>국가대표</h2><span class="tag ${r==='start'?'good':r==='bench'?'amber':'bad'}">${NROLE[r]}</span></div>
-  <p>${n.n} (전력 ${n.s}) · A매치 ${g.nt.caps}경기 ${g.nt.goals}골 ${g.nt.assists}도움${g.nt.titles.length?` · 우승: ${g.nt.titles.join(', ')}`:''}</p>
-  <p class="small muted">${r==='out'?`소집되려면 OVR ${n.s-6} 이상이 필요합니다.`:r==='bench'?`선발로 뛰려면 OVR ${n.s-1} 이상이 필요합니다.`:'대표팀 주전입니다.'} 다음 A매치 기간: ${d?`${d.getUTCMonth()+1}월 ${d.getUTCDate()}일 주 (리그 경기 뒤)`:'이번 시즌 없음'}. 시즌 뒤 여름 대회: ${tn||'없음'}.</p>
-  ${canFriendly()?`<div class="row"><button class="primary" data-act="intl" data-arg="fr">A매치 친선전 치르기</button><span class="small muted">건너뛰려면 그냥 다음 주로 넘어가세요.</span></div>`:''}</div>`}
+  <p>${n.n} (전력 ${n.s}) · A매치 ${g.nt.caps}경기 ${g.nt.goals}골 ${g.nt.assists}도움</p>${g.nt.titles.length?`<p class="small">우승 이력: ${g.nt.titles.join(', ')}</p>`:''}
+  <p class="small muted">${r==='out'?`소집되려면 OVR ${n.s-6} 이상이 필요합니다.`:r==='bench'?`선발로 뛰려면 OVR ${n.s-1} 이상이 필요합니다.`:'대표팀 주전입니다.'}</p>
+  ${g.fr&&!g.intlPlayed?`<p class="notice"><span class="tag">친선</span> 이번 주 소집: ${g.fr.n}(전력 ${g.fr.str})와 A매치 친선전. ${g.phase==='post'?'지금 치를 수 있습니다.':'리그 경기를 마치면 치를 수 있습니다.'}</p>`:''}
+  ${canFriendly()?`<div class="row"><button class="primary" data-act="intl" data-arg="fr">친선전 치르기</button><span class="small muted">건너뛰려면 그냥 다음 주로 넘어가세요.</span></div>`:''}
+  ${ev&&!g.tour&&g.phase==='week'&&tourRole(ev)!=='out'?`<p class="notice"><span class="tag amber">컵 대회</span> 이번 주 소집: ${ev.name} (${ev.date} 개막). 리그 경기를 마치면 대회가 시작됩니다.</p>`:''}
+  ${g.phase==='post'?tourCard():''}
+  <h3>남은 대표팀 일정</h3>${sched.length?sched.map(x=>`<p class="small">${x.h}</p>`).join(''):'<p class="small muted">이번 시즌에는 남은 일정이 없습니다.</p>'}</div>`}
 
 /* ---------- 득점왕 · 도움왕 경쟁 ---------- */
 const NAMES={
@@ -479,6 +511,7 @@ function finishMatch(){
   g.results.unshift({s:g.season,w:g.week+1,opp:t[m.opp].n,home:m.home,sc:`${m.my}-${m.op}`,r:win?'승':lose?'패':'무',rating,ga:`${m.goals}골 ${m.assists}도움`});
   g.results.length=Math.min(g.results.length,40);
   news(`${t[m.opp].n}전 ${m.my}-${m.op} ${win?'승리':lose?'패배':'무승부'}${rating?` · 평점 ${rating.toFixed(1)}`:' · 출전 없음'}`);
+  {const ev=midEvents().find(e=>e.week===g.week);if(ev)g.tour=makeTour(ev)}
   g.phase='post';save();
 }
 function nextWeek(){
@@ -488,7 +521,7 @@ function nextWeek(){
   g.trust=cl(g.trust+Math.round((g.tend.pro-50)/25));
   for(const k in INV){const o=g.inv[k];if(o.v>0){const r=Math.max(-.9,INV[k].m+gauss()*INV[k].s);o.v*=1+r;o.ch=r}else o.ch=0}
   g.cond=cl(g.cond+30+(g.perks.bed?6:0));
-  g.intlPlayed=false;g.trainLeft=2;g.trained=0;g.bought={};g.last=null;M=null;ui.train=null;g.week++;
+  g.tour=null;g.fr=null;g.intlPlayed=false;g.trainLeft=2;g.trained=0;g.bought={};g.last=null;M=null;ui.train=null;g.week++;
   if(g.week>=W()){
     g.week=W()-1;const nT=g.teams.length,rank=table().findIndex(x=>x.i===g.club)+1,prize=Math.round((nT+1-rank)*100*LEAGUES[g.league].m);g.money+=prize;
     const o=ovr(),offers=[],c=[],seen={};
@@ -500,10 +533,10 @@ function nextWeek(){
     if(rc.aRank===1&&g.ss.assists>0){award+=Math.round(300*mm);news(`${g.ss.assists}도움으로 리그 도움왕에 올랐습니다!`)}
     g.money+=award;
     g.hist.push({s:g.season,lg:LEAGUES[g.league].n,club:g.teams[g.club].n,apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:avgR,rank,gRank:rc.gRank,aRank:rc.aRank});
-    g.tour=makeTour();if(g.tour)news(`${NATIONS[g.nat].n} 대표로 ${g.tour.name}에 나갑니다.`);
+    g.tour=makeTour(summerEvent());if(g.tour)news(`[컵 대회] ${NATIONS[g.nat].n} 대표로 ${g.tour.name}에 나갑니다. ${g.tour.date} 개막.`);
     g.end={rank,prize,offers,award,gRank:rc.gRank,aRank:rc.aRank,gTop:{n:rc.gList[0].n,v:rc.gList[0].g},aTop:{n:rc.aList[0].n,v:rc.aList[0].a},apps:g.ss.apps,goals:g.ss.goals,assists:g.ss.assists,avg:g.ss.apps?(g.ss.rat/g.ss.apps).toFixed(2):'-'};
     news(`시즌 종료. 리그 ${rank}위, 상금 ${won(prize)}.`);g.phase='end';ui.tab='home';
-  }else g.phase='week';
+  }else{g.phase='week';rollWeek()}
   save();
 }
 function newSeason(x){
@@ -512,7 +545,7 @@ function newSeason(x){
   if(of){if(of.l!==g.league){g.league=of.l;g.teams=mkTeams(of.l)}g.club=of.i;g.trust=40}
   g.season++;g.age++;g.week=0;g.ss={apps:0,goals:0,assists:0,rat:0};
   g.teams.forEach(t=>{t.w=t.d=t.l=t.gf=t.ga=0;t.str=cl(t.str+ri(-1,1),60,92)});
-  g.sched=makeSched(g.teams.length);g.wage=wage();g.end=null;g.tour=null;g.last=null;M=null;g.phase='week';ensureRace();
+  g.sched=makeSched(g.teams.length);g.wage=wage();g.end=null;g.tour=null;g.last=null;M=null;g.phase='week';ensureRace();rollWeek();
   news(`${seasonLabel(g.season)} 시즌 개막. ${LEAGUES[g.league].n} ${g.teams[g.club].n} 소속, 새 주급 ${won(g.wage)}.`);save();
 }
 function changePos(p){if(p===g.pos||busy())return;g.pos=p;g.trust=cl(g.trust-10);ui.msg=`포지션을 ${POS[p].n}(으)로 바꿨습니다. 새 자리에 적응할 때까지 신임 -10.`}
@@ -544,8 +577,8 @@ function vSetup(){const st=makeStats(ui.setupPos),L=LEAGUES[ui.setupLeague],str=
   <div class="panel"><h2>${POS[ui.setupPos].n} 시작 능력치</h2><p class="small muted">어느 포지션이든 OVR은 71입니다. 초록색 항목이 이 포지션의 핵심 능력치이고, 옆의 작은 숫자는 체격에 따른 경기 중 보정입니다.</p>${statRows(st,ui.setupPos,{mod:bodyMod(ui.ht,ui.wt)})}</div></div>`}
 function vHeader(){const t=g.teams[g.club];
   return `<header class="board"><div class="ovr"><b>${ovr()}</b><span>OVR</span></div>
-  <div class="who"><h1>${esc(g.name)}</h1><p>${LEAGUES[g.league].n} · ${t.n} · ${POS[g.pos].n} · ${g.age}세 · ${g.ht}cm ${g.wt}kg</p><p>${dateStr()} · ${seasonLabel(g.season)} 시즌 ${g.week+1}/${W()}주</p></div>
-  <dl class="meters"><div><dt>자금</dt><dd>${won(g.money)}</dd></div><div><dt>컨디션</dt><dd>${g.cond}</dd></div><div><dt>신임</dt><dd>${g.trust}</dd></div><div><dt>EXP</dt><dd>${g.exp}</dd></div></dl></header>
+  <div class="who"><h1>${esc(g.name)}</h1><p>${LEAGUES[g.league].n} · ${t.n} · ${POS[g.pos].n} · ${g.age}세 (${g.y0-18}년생) · ${g.ht}cm ${g.wt}kg</p><p>${dateStr()} · ${seasonLabel(g.season)} 시즌 ${g.week+1}/${W()}주</p></div>
+  <dl class="meters"><div><dt>나이</dt><dd>${g.age}세</dd></div><div><dt>자금</dt><dd>${won(g.money)}</dd></div><div><dt>컨디션</dt><dd>${g.cond}</dd></div><div><dt>신임</dt><dd>${g.trust}</dd></div><div><dt>EXP</dt><dd>${g.exp}</dd></div></dl></header>
   <nav class="tabs">${[['home','이번 주'],['train','훈련'],['match','경기'],['grow','능력치'],['money','자금'],['league','리그']].map(([k,n])=>`<button data-act="tab" data-arg="${k}" class="${ui.tab===k?'on':''}">${n}</button>`).join('')}</nav>
   ${ui.msg?`<p class="notice">${esc(ui.msg)}</p>`:''}`}
 function roleCard(){const r=roleInfo(),col=r.key==='start'?'good':r.key==='bench'?'amber':'bad';
@@ -556,8 +589,7 @@ function vHome(){
   if(g.phase==='end'){const e=g.end;return `<div class="panel"><h2>${seasonLabel(g.season)} 시즌 결산</h2>
    <p>리그 <b>${e.rank}위</b> · 상금 ${won(e.prize)} · ${e.apps}경기 ${e.goals}골 ${e.assists}도움 · 평균 평점 ${e.avg}</p>
    ${e.gRank?`<p>득점 <b>${e.gRank}위</b> · 도움 <b>${e.aRank}위</b>${e.award?` · 개인상 상금 ${won(e.award)}`:''}</p><p class="small muted">득점왕 ${esc(e.gTop.n)} ${e.gTop.v}골 · 도움왕 ${esc(e.aTop.n)} ${e.aTop.v}도움</p>`:''}
-   ${g.tour?(t=>`<div class="panel"><h3>${t.name} · ${NATIONS[g.nat].n}</h3>${t.log.map(x=>`<p class="small">${x}</p>`).join('')}
-    ${t.done?`<p><b class="${t.champ?'good':''}">${t.result}</b></p>`:`<p>다음 경기: ${t.stages[t.idx]} · ${t.next.n} (전력 ${t.next.str})${t.idx<3?` · 현재 승점 ${t.pts}`:''}</p><div class="row"><button class="primary" data-act="intl" data-arg="tour">경기 시작</button><span class="small muted">새 시즌을 시작하면 남은 대회는 건너뜁니다.</span></div>`}</div>`)(g.tour):''}
+   ${tourCard()}
    ${e.offers.length?`<p class="notice">이적 제안이 왔습니다. 옮기면 신임은 40에서 다시 시작하고 주급은 새 리그 기준으로 정해집니다.</p>${e.offers.map((o,i)=>`<div class="item"><div><b>${o.n}</b><p class="small muted">${LEAGUES[o.l].n} · 전력 ${o.s}</p></div><button data-act="season" data-arg="${i}">이적</button></div>`).join('')}`:''}
    <div class="row"><button class="primary" data-act="season" data-arg="">${g.teams[g.club].n}에 남아 새 시즌 시작</button></div></div>`}
   const f=fixture(),o=g.teams[f.opp];
@@ -587,13 +619,13 @@ function vMatch(){
     <p class="small muted">경기를 시작하면 이번 주 훈련은 더 할 수 없습니다. 남은 훈련 ${g.trainLeft}회.</p>
     <div class="row"><button class="primary" data-act="match">경기 시작</button></div></div>`}
   const T=M.T.n,O=M.O.n,L=g.last;
-  return `<div class="panel">${M.intl?`<p class="small muted">${M.intl.label}</p>`:''}<div class="score"><span class="t">${T}</span><span><span class="n">${M.my} : ${M.op}</span><br><span class="clock">${M.done?'종료':M.min+"'"}</span></span><span class="t">${O}</span></div>
+  return `<div class="panel">${M.intl?`<p><span class="tag ${M.intl.kind==='tour'?'amber':''}">${M.intl.kind==='tour'?'컵 대회':'친선'}</span> <span class="small muted">${M.intl.label}</span></p>`:''}<div class="score"><span class="t">${T}</span><span><span class="n">${M.my} : ${M.op}</span><br><span class="clock">${M.done?'종료':M.min+"'"}</span></span><span class="t">${O}</span></div>
   ${M.done?'':`<div class="row"><button data-act="speed" data-arg="1" class="${M.speed===1?'on':''}">x1</button><button data-act="speed" data-arg="2" class="${M.speed===2?'on':''}">x2</button><button data-act="skip">건너뛰기</button></div>`}
   <div class="feed" id="feed">${M.lines.map(l=>`<p class="${l.c}"><span class="m">${l.m}'</span><span>${esc(l.t)}</span></p>`).join('')}</div>
   ${M.done&&L?`<div class="panel"><h3>경기 후 정산</h3>
    ${L.played?`<p>${L.played}분 출전 · 평점 <b>${L.rating.toFixed(1)}</b> · ${L.goals}골 ${L.assists}도움 · 슛 ${L.shots} · 키패스 ${L.keyp} · 돌파 ${L.drib} · 수비 성공 ${L.tack}</p>`:'<p>오늘은 출전하지 못했습니다.</p>'}
    <p><b class="good">EXP +${L.exp}</b> · 수당 ${won(L.bonus)}${L.intl?'':` · 신임 ${L.dt>=0?'+':''}${L.dt}`}</p>${L.extra?`<p><b>${L.extra}</b></p>`:''}
-   <div class="row"><button data-act="tab" data-arg="grow">EXP 분배하기</button>${g.phase==='end'?`<button class="primary" data-act="tab" data-arg="home">대회 현황으로</button>`:`${canFriendly()?`<button data-act="intl" data-arg="fr">A매치 친선전 치르기</button>`:''}<button class="primary" data-act="next">다음 주로</button>`}</div></div>`:''}</div>`}
+   <div class="row"><button data-act="tab" data-arg="grow">EXP 분배하기</button>${g.tour?`<button class="${g.tour.done?'':'primary'}" data-act="tab" data-arg="home">${g.tour.name} 현황</button>`:''}${g.phase==='end'?'':`${canFriendly()?`<button data-act="intl" data-arg="fr">친선전 치르기 (${g.fr.n})</button>`:''}<button class="${g.tour&&!g.tour.done?'':'primary'}" data-act="next">다음 주로</button>`}</div></div>`:''}</div>`}
 function vGrow(){
   return `<div class="cols"><div class="panel"><div class="row spread"><h2>능력치</h2><span>보유 EXP <b>${g.exp}</b></span></div>
   <p class="small muted">버튼의 숫자가 필요한 EXP입니다. 능력치가 높을수록 비쌉니다. 노란 선은 훈련 숙련도입니다.</p>
@@ -617,8 +649,8 @@ function vLeague(){const rc=raceInfo(),live=g.phase==='end'?[]:[{s:g.season,lg:L
   return `<div class="panel"><h2>${LEAGUES[g.league].n} ${seasonLabel(g.season)} 순위</h2><div class="tablewrap"><table><thead><tr><th>#</th><th>팀</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
   ${table().map((t,i)=>`<tr class="${t.i===g.club?'mine':''}"><td>${i+1}</td><td>${t.n}</td><td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td><td>${t.gd>0?'+':''}${t.gd}</td><td>${t.pts}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="cols">${raceTable(rc.gList,'g','골','득점왕 경쟁',rc.gRank)}${raceTable(rc.aList,'a','도움','도움왕 경쟁',rc.aRank)}</div>
-  <div class="panel"><h2>시즌별 내 기록</h2><div class="tablewrap"><table><thead><tr><th>시즌</th><th>팀</th><th>경기</th><th>골</th><th>도움</th><th>평점</th><th>팀 순위</th><th>득점</th><th>도움</th></tr></thead><tbody>
-  ${hs.map(h=>`<tr class="${h.live?'mine':''}"><td>${seasonLabel(h.s)}${h.live?' 진행 중':''}</td><td>${h.club}<br><span class="small muted">${h.lg}</span></td><td>${h.apps}</td><td>${h.goals}</td><td>${h.assists}</td><td>${h.avg}</td><td>${h.rank}위</td><td>${h.gRank}위</td><td>${h.aRank}위</td></tr>`).join('')}</tbody></table></div>
+  <div class="panel"><h2>시즌별 내 기록</h2><div class="tablewrap"><table><thead><tr><th>시즌</th><th>나이</th><th>팀</th><th>경기</th><th>골</th><th>도움</th><th>평점</th><th>팀 순위</th><th>득점</th><th>도움</th></tr></thead><tbody>
+  ${hs.map(h=>`<tr class="${h.live?'mine':''}"><td>${seasonLabel(h.s)}${h.live?' 진행 중':''}</td><td>${g.age-(g.season-h.s)}세</td><td>${h.club}<br><span class="small muted">${h.lg}</span></td><td>${h.apps}</td><td>${h.goals}</td><td>${h.assists}</td><td>${h.avg}</td><td>${h.rank}위</td><td>${h.gRank}위</td><td>${h.aRank}위</td></tr>`).join('')}</tbody></table></div>
   <p class="small muted">통산 ${g.car.apps}경기 ${g.car.goals}골 ${g.car.assists}도움. 득점왕은 리그 배율에 따라 500만원부터, 도움왕은 300만원부터 상금을 받습니다.</p></div>
   <div class="panel"><h2>내 경기 기록</h2>${g.results.length?`<div class="tablewrap"><table><thead><tr><th>주</th><th>상대</th><th>결과</th><th>평점</th><th>기록</th></tr></thead><tbody>${g.results.map(r=>`<tr><td>${seasonLabel(r.s)} ${r.w}주</td><td>${r.home?'홈':'원정'} ${r.opp}</td><td>${r.sc} ${r.r}</td><td>${r.rating?r.rating.toFixed(1):'-'}</td><td>${r.rating?r.ga:'-'}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">아직 치른 경기가 없습니다.</p>'}</div>`}
 function render(){
