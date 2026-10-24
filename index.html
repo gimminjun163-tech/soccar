@@ -99,6 +99,9 @@ input[type=range]{padding:0;border:0;width:100%;min-height:28px;accent-color:var
 .reps .ok{background:var(--turf);border-color:var(--turf);color:var(--turf-ink)}
 .reps .no{border-color:var(--red);color:var(--red)}
 
+.pitchslot{width:100%}
+.pitchslot canvas{display:block;width:100%;border-radius:8px}
+.dot{display:inline-block;width:.7em;height:.7em;border-radius:50%;margin-right:4px;vertical-align:-1px;border:1px solid rgba(0,0,0,.4)}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;min-width:420px}
 th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
@@ -590,7 +593,62 @@ function startMatch(){
   line(r.key==='start'?`${g.name}, 오늘 선발로 나섭니다.`:r.key==='bench'?`${g.name}, 벤치에서 출발합니다.`:r.away?`${g.name}, 대표팀 차출로 자리를 비웠습니다.`:`${g.name}, 오늘은 명단에서 빠졌습니다. 관중석에서 지켜봅니다.`,'me');
   ui.tab='match';tick();
 }
-function line(t,c){M.lines.push({m:M.min,t,c:c||''})}
+function line(t,c){if(!M.lines.length)pvInit();M.lines.push({m:M.min,t,c:c||''});pvEvent(t,c||'')}
+
+/* ---------- 중계 화면: 위에서 내려다본 피치. 우리 팀은 오른쪽으로 공격 ---------- */
+const FORM=[[.05,.5],[.2,.15],[.18,.38],[.18,.62],[.2,.85],[.42,.15],[.4,.38],[.4,.62],[.42,.85],[.62,.38],[.62,.62]];
+const POSSLOT={ST:9,WG:8,AM:10,CM:7,DM:6,FB:4,CB:2};
+let PV=null,pitchCv=null;
+function pvInit(){PV={ball:{x:.5,y:.5},q:[],seg:null,flash:null,focus:null,wander:0,t:performance.now(),raf:0,
+  pl:[0,1].map(s=>FORM.map(([x,y])=>({bx:x,by:s?1-y:y,x:s?1-x:x,y:s?1-y:y})))}}
+function pvSet(pts){if(!PV)return;PV.q=pts;PV.seg=null}
+function pvEvent(t,c){if(!PV||!M)return;
+  if(/교체|벤치|선발로|명단|자리를 비웠|지친|관중석/.test(t))return;
+  const now=performance.now(),sp=M.speed||1,mp=PV.pl[0][POSSLOT[g.pos]],rnd=(a,b)=>a+R()*(b-a);
+  const dfn=/태클|가로챕|돌파를 허용/.test(t),meEv=c.includes('me')&&M.on&&t.includes(g.name);
+  let mine=c.includes('goal')?true:c.includes('conc')?false:dfn?false:meEv?true:t.includes(M.O.n)?false:t.includes(M.T.n)?true:null;
+  if(mine===null){pvSet(/킥오프|종료/.test(t)?[{x:.5,y:.5,d:400}]:[{x:rnd(.35,.65),y:rnd(.2,.8),d:700}]);return}
+  if(dfn){const pts=[{x:.38,y:rnd(.3,.7)},{x:mp.x,y:mp.y,d:300}];if(/허용/.test(t))pts.push({x:.12,y:rnd(.35,.65)});else PV.focus={until:now+1500/sp};pvSet(pts);return}
+  const X=v=>mine?v:1-v,pts=[],scored=c.includes('goal')||c.includes('conc');
+  if(meEv){PV.focus={until:now+1800/sp};pts.push({x:mp.x,y:mp.y,d:350})}else pts.push({x:X(.6),y:rnd(.25,.75)});
+  pts.push({x:X(rnd(.74,.86)),y:rnd(.25,.75)});
+  if(scored)pts.push({x:X(1.012),y:rnd(.465,.535),d:260,f:()=>{PV.flash={txt:mine?'GOAL!':'실점',col:mine?'#f2c230':'#ffffff',until:performance.now()+1300/(M?M.speed:1)};PV.q=[{x:.5,y:.5,d:900}]}});
+  else if(/슛|헤더|프리킥|중거리/.test(t)){const save=/막아|잡아|품에|정면|벽/.test(t);pts.push(save?{x:X(.965),y:.5,d:260}:{x:X(1.02),y:R()<.5?rnd(.3,.42):rnd(.58,.7),d:260})}
+  else pts.push({x:X(rnd(.6,.75)),y:rnd(.2,.8),d:500});
+  pvSet(pts)}
+function pvMount(slot){if(!pitchCv){pitchCv=document.createElement('canvas');pitchCv.setAttribute('role','img');pitchCv.setAttribute('aria-label','경기 중계 화면')}
+  slot.appendChild(pitchCv);if(!PV)pvInit();if(!PV.raf)PV.raf=requestAnimationFrame(pvLoop)}
+function pvLoop(now){if(!PV)return;if(!pitchCv||!pitchCv.isConnected){PV.raf=0;return}
+  const dt=Math.min(50,now-PV.t),sp=M?M.speed:1,b=PV.ball;PV.t=now;
+  if(!PV.seg&&PV.q.length){const n=PV.q.shift();PV.seg={sx:b.x,sy:b.y,tx:n.x,ty:n.y,t0:now,d:(n.d||320)/sp,f:n.f}}
+  if(PV.seg){const s=PV.seg,k=Math.min(1,(now-s.t0)/s.d),e=k*(2-k);b.x=s.sx+(s.tx-s.sx)*e;b.y=s.sy+(s.ty-s.sy)*e;if(k>=1){PV.seg=null;if(s.f)s.f()}}
+  else if(now>PV.wander&&M&&!M.done){PV.wander=now+900/sp;PV.q.push({x:cl(b.x+(R()-.5)*.12,.25,.75),y:cl(b.y+(R()-.5)*.2,.15,.85),d:800})}
+  const foc=PV.focus&&now<PV.focus.until&&M&&M.on,slot=POSSLOT[g.pos];
+  PV.pl.forEach((team,s)=>{let best=-1,bd=9;
+    team.forEach((p,i)=>{if(!i)return;const d=(p.x-b.x)**2+(p.y-b.y)**2;if(d<bd){bd=d;best=i}});
+    if(!s&&foc)best=slot;
+    team.forEach((p,i)=>{const base=s?1-p.bx:p.bx;let tx=base+(b.x-.5)*(i?.45:.08),ty=p.by+(b.y-.5)*(i?.22:.3)+Math.sin(now/900+i*1.7+s*3)*.012;
+      if(i===best){tx=b.x+(s?.014:-.014);ty=b.y}
+      tx=cl(tx,.02,.98);ty=cl(ty,.04,.96);const k=Math.min(1,dt/1000*(i===best?4:2)*sp);p.x+=(tx-p.x)*k;p.y+=(ty-p.y)*k})});
+  pvDraw(now);PV.raf=requestAnimationFrame(pvLoop)}
+function pvDraw(now){const cv=pitchCv,w=cv.parentNode.clientWidth||300,h=Math.round(w*.64),dpr=window.devicePixelRatio||1;
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);cv.style.height=h+'px'}
+  const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
+  const m=10,PW=w-2*m,PH=h-2*m,X=x=>m+x*PW,Y=y=>m+y*PH;
+  for(let i=0;i<12;i++){c.fillStyle=i%2?'#2f8a4a':'#287c42';c.fillRect(i*w/12,0,w/12+1,h)}
+  c.strokeStyle='rgba(255,255,255,.8)';c.lineWidth=1.5;c.strokeRect(X(0),Y(0),PW,PH);
+  c.beginPath();c.moveTo(X(.5),Y(0));c.lineTo(X(.5),Y(1));c.stroke();
+  c.beginPath();c.arc(X(.5),Y(.5),PH*.14,0,7);c.stroke();
+  c.strokeRect(X(0),Y(.2),PW*.157,PH*.6);c.strokeRect(X(1-.157),Y(.2),PW*.157,PH*.6);
+  c.strokeRect(X(0),Y(.37),PW*.052,PH*.26);c.strokeRect(X(1-.052),Y(.37),PW*.052,PH*.26);
+  c.fillStyle='rgba(255,255,255,.9)';c.fillRect(X(0)-6,Y(.445),6,PH*.11);c.fillRect(X(1),Y(.445),6,PH*.11);
+  const r=Math.max(4.5,w*.013),slot=POSSLOT[g.pos],font='IBM Plex Sans KR, system-ui, sans-serif';
+  PV.pl.forEach((team,s)=>team.forEach((p,i)=>{c.beginPath();c.arc(X(p.x),Y(p.y),r,0,7);
+    c.fillStyle=s?(i?'#2f6fde':'#14306b'):(i?'#f2c230':'#a8760a');c.fill();c.lineWidth=1.2;c.strokeStyle='rgba(0,0,0,.6)';c.stroke();
+    if(!s&&i===slot&&M&&M.on){c.beginPath();c.arc(X(p.x),Y(p.y),r+3,0,7);c.strokeStyle='#ffffff';c.lineWidth=2;c.stroke();
+      c.fillStyle='#ffffff';c.font=`600 ${Math.round(Math.max(11,r*1.6))}px ${font}`;c.textAlign='center';c.fillText('나',X(p.x),Y(p.y)-r-6)}}));
+  const b=PV.ball;c.beginPath();c.arc(X(b.x),Y(b.y),Math.max(3,r*.55),0,7);c.fillStyle='#ffffff';c.fill();c.strokeStyle='#111111';c.lineWidth=1;c.stroke();
+  if(PV.flash&&now<PV.flash.until){c.fillStyle='rgba(0,0,0,.4)';c.fillRect(0,0,w,h);c.fillStyle=PV.flash.col;c.font=`400 ${Math.round(w*.11)}px "Black Han Sans", ${font}`;c.textAlign='center';c.textBaseline='middle';c.fillText(PV.flash.txt,w/2,h/2);c.textBaseline='alphabetic'}}
 const es=k=>g.stats[k]+(bodyMod(g.ht,g.wt)[k]||0)+(g.cond-70)*.12;
 function goal(mine){if(mine)M.my++;else M.op++;return ` (${M.my}-${M.op})`}
 function stepMinute(){
@@ -792,6 +850,8 @@ function vMatch(){
     <div class="row"><button class="primary" data-act="match">경기 시작</button></div></div>`}
   const T=M.T.n,O=M.O.n,L=g.last;
   return `<div class="panel">${M.cc?`<p><span class="tag good">대륙 대회</span> <span class="small muted">${M.cc}</span></p>`:''}${M.intl?`<p><span class="tag ${M.intl.kind==='tour'?'amber':''}">${M.intl.kind==='tour'?'컵 대회':'친선'}</span> <span class="small muted">${M.intl.label}</span></p>`:''}<div class="score"><span class="t">${T}</span><span><span class="n">${M.my} : ${M.op}</span><br><span class="clock">${M.done?'종료':M.min+"'"}</span></span><span class="t">${O}</span></div>
+  <div class="row"><span class="small muted">보기</span><button data-act="view" data-arg="text" class="${g.view==='text'?'on':''}">텍스트</button><button data-act="view" data-arg="pitch" class="${g.view!=='text'?'on':''}">텍스트 + 중계 화면</button></div>
+  ${g.view!=='text'?`<div id="pitchSlot" class="pitchslot"></div><p class="small muted"><span class="dot" style="background:#f2c230"></span>${esc(M.T.n)} (오른쪽으로 공격) · <span class="dot" style="background:#2f6fde"></span>${esc(M.O.n)} · 흰 테두리가 나</p>`:''}
   ${M.done?'':`<div class="row"><button data-act="speed" data-arg="1" class="${M.speed===1?'on':''}">x1</button><button data-act="speed" data-arg="2" class="${M.speed===2?'on':''}">x2</button><button data-act="skip">건너뛰기</button></div>`}
   <div class="feed" id="feed">${M.lines.map(l=>`<p class="${l.c}"><span class="m">${l.m}'</span><span>${esc(l.t)}</span></p>`).join('')}</div>
   ${M.done&&L?`<div class="panel"><h3>경기 후 정산</h3>
@@ -830,6 +890,7 @@ function render(){
   if(!g){app.innerHTML=vSetup();return}
   app.innerHTML=vHeader()+({home:vHome,train:vTrain,match:vMatch,grow:vGrow,money:vMoney,market:vMarket,league:vLeague}[ui.tab])();
   const f=document.getElementById('feed');if(f)f.scrollTop=f.scrollHeight;
+  const ps=document.getElementById('pitchSlot');if(ps)pvMount(ps);
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
@@ -848,6 +909,7 @@ document.addEventListener('click',e=>{
   else if(a==='intl')return startIntl(x);
   else if(a==='xfer')xfer(+x);
   else if(a==='cc')return startCC();
+  else if(a==='view')g.view=x;
   else if(a==='agent')agent();
   else if(a==='setnat'){g.nat=+document.getElementById('natpick').value;ui.msg=`국적을 ${NATIONS[g.nat].n}(으)로 정했습니다.`}
   else if(a==='speed'){if(M)M.speed=+x}
